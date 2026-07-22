@@ -745,8 +745,9 @@ def main():
     billing_shown = print_billing_dashboard_costs(session)
     if not billing_shown:
         print_status("warning", "Access Denied or Cost Explorer disabled. Skipping billing dashboard cost display.")
-        print(f"     {Colors.CYAN}To display billing details, ensure your IAM user has the 'ce:GetCostAndUsage' policy, and{Colors.RESET}")
-        print(f"     {Colors.CYAN}IAM User/Role Access to billing information is enabled under your AWS Account settings.{Colors.RESET}")
+        print(f"     {Colors.CYAN}To display billing details, ensure your IAM user has 'ce:GetCostAndUsage' permissions{Colors.RESET}")
+        print(f"     {Colors.CYAN}(e.g., attach the 'AWSBillingReadOnlyAccess' managed policy to the user) and{Colors.RESET}")
+        print(f"     {Colors.CYAN}IAM billing console access is enabled in your AWS root account settings.{Colors.RESET}")
         
     print("\nRetrieving AWS regions...")
     regions = get_all_regions(session)
