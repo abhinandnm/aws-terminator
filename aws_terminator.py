@@ -81,16 +81,47 @@ class Spinner:
         sys.stdout.flush()
 
 def print_banner():
-    logo = f"""
-  {Colors.CYAN}┌─────────────────────────────────────────────────────────┐     {Colors.MAGENTA}    .---.      
-  {Colors.CYAN}│  {Colors.BOLD}{Colors.CYAN}AWS TERMINATOR{Colors.RESET}{Colors.CYAN}                                         │     {Colors.MAGENTA}   /     \\     
-  {Colors.CYAN}│  {Colors.GRAY}CLI Version 1.0.0 • Commit main-latest{Colors.CYAN}                 │     {Colors.MAGENTA}   |{Colors.RED} O   O {Colors.MAGENTA}|     
-  {Colors.CYAN}│                                                         │     {Colors.MAGENTA}   \\  ^  /     
-  {Colors.CYAN}│  {Colors.CYAN}Cost-saving cleanup utility for AWS environments.     │     {Colors.MAGENTA}    |||||      
-  {Colors.CYAN}│  {Colors.CYAN}Type 'yes' when prompted to nuke resources.            │     {Colors.MAGENTA}    '---'      
-  {Colors.CYAN}└─────────────────────────────────────────────────────────┘{Colors.RESET}
-"""
-    print(logo)
+    # Large block letters for AWS and TERMINATOR
+    banner_lines = [
+        "",
+        f" {Colors.CYAN}█████╗ ██╗    ██╗███████╗{Colors.RESET}",
+        f" {Colors.CYAN}██╔══██╗██║    ██║██╔════╝{Colors.RESET}",
+        f" {Colors.CYAN}███████║██║ █╗ ██║███████╗{Colors.RESET}",
+        f" {Colors.CYAN}██╔══██║██║███╗██║╚════██║{Colors.RESET}",
+        f" {Colors.CYAN}██║  ██║╚███╔███╔╝███████║{Colors.RESET}",
+        f" {Colors.CYAN}╚═╝  ╚═╝ ╚══╝╚══╝ ╚══════╝{Colors.RESET}",
+        "",
+        f" {Colors.CYAN}████████╗███████╗██████╗ ███╗   ███╗██╗███╗   ██╗ █████╗ ████████╗ ██████╗ ██████╗{Colors.RESET}",
+        f" {Colors.CYAN}╚══██╔══╝██╔════╝██╔══██╗████╗ ████║██║████╗  ██║██╔══██╗╚══██╔══╝██╔═══██╗██╔══██╗{Colors.RESET}",
+        f" {Colors.CYAN}   ██║   █████╗  ██████╔╝██╔████╔██║██║██╔██╗ ██║███████║   ██║   ██║   ██║██████╔╝{Colors.RESET}",
+        f" {Colors.CYAN}   ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║██║██║╚██╗██║██╔══██║   ██║   ██║   ██║██╔══██╗{Colors.RESET}",
+        f" {Colors.CYAN}   ██║   ███████╗██║  ██║██║ ╚═╝ ██║██║██║ ╚████║██║  ██║   ██║   ╚██████╔╝██║  ██║{Colors.RESET}",
+        f" {Colors.CYAN}   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝{Colors.RESET}",
+        "",
+        f" {Colors.GRAY}CLI Version 1.0.0 • Commit main-latest{Colors.RESET}",
+        f" {Colors.GRAY}Cost-saving cleanup utility for AWS environments.{Colors.RESET}",
+        f" {Colors.GRAY}Type 'yes' when prompted to nuke resources.{Colors.RESET}",
+        ""
+    ]
+    
+    # Filter out ANSI escapes to calculate clean lengths
+    import re
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    
+    clean_lines = [ansi_escape.sub('', line) for line in banner_lines]
+    max_len = max(len(l) for l in clean_lines)
+    # Add a bit of buffer padding
+    max_len = max(max_len, 86)
+    
+    print(f"  {Colors.CYAN}┌{'─' * (max_len + 2)}┐{Colors.RESET}")
+    for clean, original in zip(clean_lines, banner_lines):
+        padding = " " * (max_len - len(clean))
+        # Keep empty lines empty except for borders
+        if not clean:
+            print(f"  {Colors.CYAN}│{Colors.RESET}{' ' * (max_len + 2)}{Colors.CYAN}│{Colors.RESET}")
+        else:
+            print(f"  {Colors.CYAN}│{Colors.RESET} {original} {padding}{Colors.CYAN}│{Colors.RESET}")
+    print(f"  {Colors.CYAN}└{'─' * (max_len + 2)}┘{Colors.RESET}")
 
 def print_header(title):
     print(f"\n{Colors.BOLD}{Colors.CYAN}" + "=" * 60)
