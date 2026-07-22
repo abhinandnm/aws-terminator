@@ -33,8 +33,10 @@ class Colors:
     GREEN = '\033[92m'
     YELLOW = '\033[93m'
     RED = '\033[91m'
+    MAGENTA = '\033[95m'
     BOLD = '\033[1m'
     RESET = '\033[0m'
+    GRAY = '\033[90m'
 
 # Custom config to set a low timeout and 1 retry.
 TIMEOUT_CONFIG = Config(
