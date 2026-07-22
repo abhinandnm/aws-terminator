@@ -744,23 +744,28 @@ def main():
     # Attempt to print real AWS billing dashboard details
     billing_shown, billing_error = print_billing_dashboard_costs(session)
     if not billing_shown:
-        print_status("warning", "Access Denied or Cost Explorer disabled. Skipping billing dashboard cost display.")
-        if billing_error:
-            print(f"     {Colors.RED}AWS Error Details: {billing_error}{Colors.RESET}")
-        print(f"     {Colors.CYAN}How to resolve this in 2 simple steps:{Colors.RESET}")
-        print(f"       1. Activate IAM Billing Access (must be done by AWS Root User account) at:{Colors.RESET}")
-        print(f"          https://console.aws.amazon.com/billing/home?#/account{Colors.RESET}")
-        print(f"       2. Attach the 'AWSBillingReadOnlyAccess' managed policy to your IAM User/Role at:{Colors.RESET}")
-        print(f"          https://console.aws.amazon.com/iam/home?#/users{Colors.RESET}")
-        
-        try:
-            proceed = input(f"\n{Colors.YELLOW}Would you like to proceed with the scan without billing details? (yes/no): {Colors.RESET}").strip().lower()
-            if proceed != 'yes':
-                print(f"\n{Colors.YELLOW}Exiting. Please configure Cost Explorer permissions and run again.{Colors.RESET}")
+        if billing_error and "DataUnavailableException" in billing_error:
+            print_status("info", "AWS Cost Explorer is currently initializing or has no data history yet.")
+            print(f"     {Colors.CYAN}Note: It can take up to 24 hours for AWS to populate Cost Explorer data after activation.{Colors.RESET}")
+            print(f"     {Colors.CYAN}The script will automatically proceed with scanning active resources...{Colors.RESET}")
+        else:
+            print_status("warning", "Access Denied or Cost Explorer disabled. Skipping billing dashboard cost display.")
+            if billing_error:
+                print(f"     {Colors.RED}AWS Error Details: {billing_error}{Colors.RESET}")
+            print(f"     {Colors.CYAN}How to resolve this in 2 simple steps:{Colors.RESET}")
+            print(f"       1. Activate IAM Billing Access (must be done by AWS Root User account) at:{Colors.RESET}")
+            print(f"          https://console.aws.amazon.com/billing/home?#/account{Colors.RESET}")
+            print(f"       2. Attach the 'AWSBillingReadOnlyAccess' managed policy to your IAM User/Role at:{Colors.RESET}")
+            print(f"          https://console.aws.amazon.com/iam/home?#/users{Colors.RESET}")
+            
+            try:
+                proceed = input(f"\n{Colors.YELLOW}Would you like to proceed with the scan without billing details? (yes/no): {Colors.RESET}").strip().lower()
+                if proceed != 'yes':
+                    print(f"\n{Colors.YELLOW}Exiting. Please configure Cost Explorer permissions and run again.{Colors.RESET}")
+                    sys.exit(0)
+            except KeyboardInterrupt:
+                print(f"\n{Colors.YELLOW}Exiting.{Colors.RESET}")
                 sys.exit(0)
-        except KeyboardInterrupt:
-            print(f"\n{Colors.YELLOW}Exiting.{Colors.RESET}")
-            sys.exit(0)
         
     print("\nRetrieving AWS regions...")
     regions = get_all_regions(session)
