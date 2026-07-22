@@ -38,7 +38,7 @@ A lightweight, unbuffered, and highly optimized Python script designed to scan a
 Clone this repository and install the official AWS SDK (`boto3`):
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/aws-terminator.git
+git clone https://github.com/abhinandnm/aws-terminator.git
 cd aws-terminator
 pip install boto3
 ```
