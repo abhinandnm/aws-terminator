@@ -64,7 +64,7 @@ If you are searching Google for answers to these common AWS billing and administ
 
 ### 1. Installation
 
-Clone this repository and install the official AWS SDK (boto3):
+Download the stable release or clone this repository and install the required dependencies:
 
 ```bash
 git clone https://github.com/abhinandnm/aws-eraser.git
@@ -72,10 +72,11 @@ cd aws-eraser
 pip install -r requirements.txt
 ```
 
+> **For Windows Users:** You can simply run the provided `run.bat` file (by double-clicking it or running `.\run.bat` in the terminal) to automatically install dependencies and launch the utility.
+
 ### 2. Usage
 
-Run the script on Windows using the batch file:
-Double-click `run.bat` or execute in the terminal:
+Execute the script directly in your terminal:
 ```bash
 python aws_eraser.py
 ```
@@ -108,17 +109,6 @@ If the script shows an `Access Denied or Cost Explorer disabled` warning even af
    * Attach it to the user.
 
 > **Note:** When the script detects a `DataUnavailableException`, it will display an informational message that Cost Explorer is still initializing and will automatically continue scanning resources without aborting. No policy changes are required in that case; just wait up to 24 hours for billing data to become available.
-
-1. **Activate IAM Billing Access (Must be done by the AWS Root Account):**
-   * Sign in to the AWS Console as the **Root User** (using the primary email address of the account, not an IAM user).
-   * Open the [AWS Account Settings Page](https://console.aws.amazon.com/billing/home?#/account).
-   * Scroll down to the **IAM User and Role Access to Billing Information** section and click **Edit**.
-   * Check the box for **Activate IAM Access** and click **Update**.
-
-2. **Attach the IAM Policy:**
-   * Open the [IAM Users Console](https://console.aws.amazon.com/iam/home?#/users).
-   * Select your target IAM user/role, click **Add Permissions**, and search for the AWS managed policy **`AWSBillingReadOnlyAccess`**.
-   * Attach it to the user.
 
 ---
 
