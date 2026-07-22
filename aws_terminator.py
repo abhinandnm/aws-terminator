@@ -753,6 +753,15 @@ def main():
         print(f"       2. Attach the 'AWSBillingReadOnlyAccess' managed policy to your IAM User/Role at:{Colors.RESET}")
         print(f"          https://console.aws.amazon.com/iam/home?#/users{Colors.RESET}")
         
+        try:
+            proceed = input(f"\n{Colors.YELLOW}Would you like to proceed with the scan without billing details? (yes/no): {Colors.RESET}").strip().lower()
+            if proceed != 'yes':
+                print(f"\n{Colors.YELLOW}Exiting. Please configure Cost Explorer permissions and run again.{Colors.RESET}")
+                sys.exit(0)
+        except KeyboardInterrupt:
+            print(f"\n{Colors.YELLOW}Exiting.{Colors.RESET}")
+            sys.exit(0)
+        
     print("\nRetrieving AWS regions...")
     regions = get_all_regions(session)
     print_status("info", f"Found {len(regions)} regions to scan.")
