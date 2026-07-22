@@ -92,27 +92,10 @@ def print_banner():
 """
     print(logo)
 
-def print_box(title, lines=[], border_color=Colors.CYAN):
-    import re
-    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-    
-    clean_lines = [ansi_escape.sub('', line) for line in lines]
-    clean_title = ansi_escape.sub('', title)
-    
-    if lines:
-        max_len = max(len(clean_title) + 4, max(len(l) for l in clean_lines))
-        max_len = max(max_len, 55)
-        print(f"\n  {border_color}┌─ {Colors.BOLD}{title}{Colors.RESET}{border_color} {'─' * (max_len - len(clean_title) - 4)}┐{Colors.RESET}")
-        for clean, original in zip(clean_lines, lines):
-            padding = " " * (max_len - len(clean))
-            print(f"  {border_color}│{Colors.RESET} {original} {padding}{border_color}│{Colors.RESET}")
-        print(f"  {border_color}└─{'─' * max_len}─┘{Colors.RESET}")
-    else:
-        # Draw a single beautiful banner line
-        print(f"\n  {border_color}─── {Colors.BOLD}{title}{Colors.RESET}{border_color} {'─' * (55 - len(clean_title))}──{Colors.RESET}")
-
 def print_header(title):
-    print_box(title.upper(), [], border_color=Colors.CYAN)
+    print(f"\n{Colors.BOLD}{Colors.CYAN}" + "=" * 60)
+    print(f" {title.upper()} ".center(60, "="))
+    print("=" * 60 + f"{Colors.RESET}")
 
 def print_status(status_type, message, region=None):
     region_str = f" [{region}]" if region else ""
@@ -137,14 +120,12 @@ def get_credentials():
         except Exception:
             pass
             
-    print_box("AWS CREDENTIALS SETUP", [
-        "No credentials.json file found.",
-        "Please enter your AWS Access and Secret keys in the prompts below."
-    ], border_color=Colors.CYAN)
+    print_header("AWS Credentials Setup")
+    print("No credentials.json file found. Please enter your AWS credentials:")
     try:
-        access_key = input("  Enter AWS Access Key ID: ").strip()
-        secret_key = input("  Enter AWS Secret Access Key: ").strip()
-        session_token = input("  Enter AWS Session Token (Optional, press Enter to skip): ").strip()
+        access_key = input("Enter AWS Access Key ID: ").strip()
+        secret_key = input("Enter AWS Secret Access Key: ").strip()
+        session_token = input("Enter AWS Session Token (Optional, press Enter to skip): ").strip()
         
         if not access_key or not secret_key:
             print(f"{Colors.RED}Error: Both Access Key ID and Secret Access Key are required.{Colors.RESET}")
@@ -673,7 +654,7 @@ def print_billing_dashboard_costs(session):
         if not results:
             return False
             
-        billing_lines = []
+        print_header("Accrued Billing Dashboard Cost (Current Month)")
         total_cost = 0.0
         groups = results[0].get('Groups', [])
         
@@ -682,14 +663,14 @@ def print_billing_dashboard_costs(session):
             amount = float(group['Metrics']['UnblendedCost']['Amount'])
             if amount > 0.01:
                 total_cost += amount
-                billing_lines.append(f"• {service_name}: {Colors.YELLOW}${amount:.2f}{Colors.RESET}")
+                print(f"  - {Colors.YELLOW}{service_name}{Colors.RESET}: ${amount:.2f}")
                 
-        billing_lines.append(f"{Colors.GRAY}──────────────────────────────────────────{Colors.RESET}")
-        billing_lines.append(f"{Colors.BOLD}{Colors.GREEN}TOTAL ACCRUED COST: ${total_cost:.2f}{Colors.RESET}")
-        
-        print_box("ACCRUED BILLING DASHBOARD (CURRENT MONTH)", billing_lines, border_color=Colors.CYAN)
-        print(f"\n  {Colors.BLUE}[i]{Colors.RESET} {Colors.GRAY}Note: Accrued costs represent history. Deleting resources stops{Colors.RESET}")
-        print(f"      {Colors.GRAY}charges from accumulating further, but past costs remain visible.{Colors.RESET}")
+        print("-" * 60)
+        print(f"{Colors.BOLD}{Colors.GREEN}TOTAL CURRENT MONTH BILL: ${total_cost:.2f}{Colors.RESET}")
+        print(f"\n{Colors.CYAN}[i] Note: The billing dashboard shows cumulative accrued costs for the current month.{Colors.RESET}")
+        print(f"{Colors.CYAN}    Once deleted, resources stop accumulating costs, but their past accrued charges{Colors.RESET}")
+        print(f"{Colors.CYAN}    will remain visible on your bill history until the billing cycle ends.{Colors.RESET}")
+        print("=" * 60)
         return True
     except Exception:
         # Return False if access is denied or Cost Explorer is not enabled
@@ -718,6 +699,7 @@ def run_nuke(session, regions, all_resources):
 
 def main():
     print_banner()
+    print_header("AWS Terminator (Dry-Run Scan)")
     
     creds = get_credentials()
     session = get_session(creds)
@@ -726,10 +708,9 @@ def main():
     try:
         sts = session.client('sts', config=TIMEOUT_CONFIG)
         identity = sts.get_caller_identity()
-        print_box("CONNECTED TO AWS", [
-            f"{Colors.BOLD}• Account ID :{Colors.RESET} {Colors.YELLOW}{identity['Account']}{Colors.RESET}",
-            f"{Colors.BOLD}• User ARN   :{Colors.RESET} {Colors.YELLOW}{identity['Arn']}{Colors.RESET}"
-        ], border_color=Colors.GREEN)
+        print(f"{Colors.GREEN}Successfully authenticated as:{Colors.RESET}")
+        print(f"  Account ID: {identity['Account']}")
+        print(f"  User ARN: {identity['Arn']}")
     except Exception as e:
         print_status("error", f"Authentication failed: {e}")
         sys.exit(1)
@@ -737,13 +718,9 @@ def main():
     # Attempt to print real AWS billing dashboard details
     billing_shown = print_billing_dashboard_costs(session)
     if not billing_shown:
-        print_box("BILLING ACCESSIBILITY", [
-            f"{Colors.YELLOW}⚠ Cost Explorer disabled or Access Denied.{Colors.RESET}",
-            "",
-            "To view billing details:",
-            "  1. Ensure your IAM user has the 'ce:GetCostAndUsage' policy.",
-            "  2. Enable IAM User/Role Access to Billing in AWS Account settings."
-        ], border_color=Colors.YELLOW)
+        print_status("warning", "Access Denied or Cost Explorer disabled. Skipping billing dashboard cost display.")
+        print(f"     {Colors.CYAN}To display billing details, ensure your IAM user has the 'ce:GetCostAndUsage' policy, and{Colors.RESET}")
+        print(f"     {Colors.CYAN}IAM User/Role Access to billing information is enabled under your AWS Account settings.{Colors.RESET}")
         
     print("\nRetrieving AWS regions...")
     regions = get_all_regions(session)
@@ -767,32 +744,29 @@ def main():
         all_resources.extend(res_reg)
         
     # Summary of findings
+    print_header("Scan Summary")
     if not all_resources:
-        print_box("SCAN SUMMARY", [
-            f"{Colors.GREEN}✔ No active billing resources found in this AWS account.{Colors.RESET}"
-        ], border_color=Colors.GREEN)
+        print(f"{Colors.GREEN}No active billing resources found in this AWS account.{Colors.RESET}")
     else:
-        summary_lines = []
+        print(f"Total resources found: {Colors.BOLD}{len(all_resources)}{Colors.RESET}")
+        print("\nSummary List:")
         for item in all_resources:
             name_str = f" ({item['name']})" if 'name' in item else ""
             region_str = f" in region {item['region']}" if 'region' in item else " (global)"
-            summary_lines.append(f"• {Colors.YELLOW}{item['type']}{Colors.RESET}: {item['id']}{name_str}{Colors.GRAY}{region_str}{Colors.RESET}")
+            print(f"  - {Colors.YELLOW}{item['type']}{Colors.RESET}: {item['id']}{name_str}{region_str}")
         
-        print_box(f"SCAN SUMMARY - FOUND {len(all_resources)} ACTIVE RESOURCES", summary_lines, border_color=Colors.RED)
+    print("=" * 60)
 
     # Print permission warnings if any occurred
     if PERMISSION_WARNINGS:
-        warning_lines = [
-            f"{Colors.YELLOW}⚠ Insufficient permissions detected for the following services:{Colors.RESET}"
-        ]
+        print_header("Scan Warnings (Missing Permissions)")
+        print(f" {Colors.YELLOW}[!]{Colors.RESET} Insufficient permissions detected for the following services:")
         for service in sorted(PERMISSION_WARNINGS):
-            warning_lines.append(f"  - {service}")
-        warning_lines.append("")
-        warning_lines.append(f"{Colors.BLUE}ℹ Note:{Colors.RESET} Active resources under these services could not be scanned")
-        warning_lines.append("  or deleted. For a complete cleanup, ensure your IAM user has")
-        warning_lines.append("  appropriate policies (e.g. 'AdministratorAccess') attached.")
-        
-        print_box("SCAN WARNINGS (MISSING PERMISSIONS)", warning_lines, border_color=Colors.YELLOW)
+            print(f"     - {service}")
+        print(f"\n {Colors.BLUE}[i]{Colors.RESET} Note: Active resources under these services could not be scanned")
+        print("     or deleted. If you want a complete cleanup, ensure your IAM user has")
+        print("     appropriate policies (e.g. 'AdministratorAccess') attached in the AWS console.")
+        print("=" * 60)
 
     if not all_resources:
         return
@@ -802,10 +776,10 @@ def main():
         confirm = input(f"\n[WARNING] {Colors.BOLD}{Colors.RED}Are you absolutely sure you want to delete all the above resources? (Type 'yes' to nuke): {Colors.RESET}").strip().lower()
         if confirm == 'yes':
             run_nuke(session, regions, all_resources)
-            print_box("NUKE PROCESS COMPLETE", [
-                f"{Colors.GREEN}✔ NUKE PROCESS FINISHED. Deletions are asynchronous.{Colors.RESET}",
-                "Please re-run the script to verify all resources are successfully deleted."
-            ], border_color=Colors.GREEN)
+            print_header("Nuke Process Complete")
+            print(f"{Colors.GREEN}[OK] NUKE PROCESS FINISHED. Some deletions are asynchronous and take time.{Colors.RESET}")
+            print("Please re-run the script to verify all resources are successfully deleted.")
+            print("=" * 60)
         else:
             print(f"\n{Colors.YELLOW}Nuke cancelled. No resources were deleted.{Colors.RESET}")
     except KeyboardInterrupt:
