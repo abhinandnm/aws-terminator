@@ -54,6 +54,9 @@ TIMEOUT_CONFIG = Config(
     retries={'max_attempts': 1}
 )
 
+# Global tracker for missing IAM permissions
+PERMISSION_WARNINGS = set()
+
 def print_header(title):
     print(f"\n{Colors.BOLD}{Colors.CYAN}" + "=" * 60)
     print(f" {title.upper()} ".center(60, "="))
@@ -169,7 +172,9 @@ def process_cloudfront(session, dry_run=True):
                 except Exception as e:
                     print_status("error", f"Failed to update CloudFront Distribution {dist_id}: {e}")
     except Exception as e:
-        if 'AccessDenied' not in str(e):
+        if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
+            PERMISSION_WARNINGS.add("CloudFront")
+        else:
             print_status("error", f"Error scanning CloudFront: {e}")
     return found
 
@@ -205,8 +210,9 @@ def process_wafv2(session, region, scope, dry_run=True):
                     print_status("success", f"Successfully deleted WAFv2 Web ACL: {name}", waf_region)
                 except Exception as e:
                     print_status("error", f"Failed to delete WAFv2 Web ACL {name}: {e}", waf_region)
-    except Exception:
-        pass
+    except Exception as e:
+        if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
+            PERMISSION_WARNINGS.add("WAFv2 (Web Application Firewall)")
     return found
 
 # S3 Buckets manager
@@ -235,7 +241,9 @@ def process_s3(session, dry_run=True):
                 except Exception as e:
                     print_status("error", f"Failed to delete bucket {name}: {e}")
     except Exception as e:
-        if 'AccessDenied' not in str(e):
+        if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
+            PERMISSION_WARNINGS.add("S3 (Simple Storage Service)")
+        else:
             print_status("error", f"Failed to scan S3: {e}")
     return found
 
@@ -268,8 +276,9 @@ def process_lightsail(session, dry_run=True):
                 if not dry_run:
                     print_status("info", f"Deleting Lightsail Database: {name}", r)
                     ls.delete_relational_database(relationalDatabaseName=name, skipFinalSnapshot=True)
-        except Exception:
-            pass
+        except Exception as e:
+            if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
+                PERMISSION_WARNINGS.add("Lightsail")
     return found
 
 # Helper to extract Name tag from resource tags list
@@ -288,7 +297,9 @@ def process_regional(session, region, dry_run=True):
         ec2 = session.client('ec2', region_name=region, config=TIMEOUT_CONFIG)
         rds = session.client('rds', region_name=region, config=TIMEOUT_CONFIG)
         ddb = session.client('dynamodb', region_name=region, config=TIMEOUT_CONFIG)
-    except Exception:
+    except Exception as e:
+        if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
+            PERMISSION_WARNINGS.add("Regional APIs (EC2/RDS/DynamoDB initialization)")
         return found
 
     # 1. EC2 Instances
@@ -317,9 +328,12 @@ def process_regional(session, region, dry_run=True):
                 ec2.terminate_instances(InstanceIds=[inst_id])
     except ClientError as e:
         if 'AuthFailure' in str(e) or 'UnauthorizedOperation' in str(e) or 'OptInRequired' in str(e):
+            if 'UnauthorizedOperation' in str(e):
+                PERMISSION_WARNINGS.add("EC2 (Elastic Compute Cloud)")
             return found # Skip disabled regions immediately
-    except Exception:
-        pass
+    except Exception as e:
+        if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
+            PERMISSION_WARNINGS.add("EC2 (Elastic Compute Cloud)")
 
     # 2. EBS Volumes
     try:
@@ -345,7 +359,9 @@ def process_regional(session, region, dry_run=True):
                 print_status("info", f"Deleting EBS Volume: {vol_id}", region)
                 try: ec2.delete_volume(VolumeId=vol_id)
                 except Exception: pass
-    except Exception: pass
+    except Exception as e:
+        if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
+            PERMISSION_WARNINGS.add("EC2 (Elastic Block Store Volumes)")
 
     # 3. Elastic IPs
     try:
@@ -370,7 +386,9 @@ def process_regional(session, region, dry_run=True):
                 if alloc_id:
                     print_status("info", f"Releasing Elastic IP: {public_ip}", region)
                     ec2.release_address(AllocationId=alloc_id)
-    except Exception: pass
+    except Exception as e:
+        if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
+            PERMISSION_WARNINGS.add("EC2 (Elastic IP Addresses)")
 
     # 4. NAT Gateways
     try:
@@ -390,7 +408,9 @@ def process_regional(session, region, dry_run=True):
                 if not dry_run:
                     print_status("info", f"Deleting NAT Gateway: {gw_id}", region)
                     ec2.delete_nat_gateway(NatGatewayId=gw_id)
-    except Exception: pass
+    except Exception as e:
+        if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
+            PERMISSION_WARNINGS.add("EC2 (NAT Gateways)")
 
     # 5. VPC Endpoints
     try:
@@ -410,7 +430,9 @@ def process_regional(session, region, dry_run=True):
                 if not dry_run:
                     print_status("info", f"Deleting VPC Endpoint: {ep_id}...", region)
                     ec2.delete_vpc_endpoints(VpcEndpointIds=[ep_id])
-    except Exception: pass
+    except Exception as e:
+        if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
+            PERMISSION_WARNINGS.add("EC2 (VPC Endpoints)")
 
     # 6. Load Balancers
     try:
@@ -423,7 +445,9 @@ def process_regional(session, region, dry_run=True):
             if not dry_run:
                 print_status("info", f"Deleting Load Balancer: {lb_name}", region)
                 elbv2.delete_load_balancer(LoadBalancerArn=arn)
-    except Exception: pass
+    except Exception as e:
+        if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
+            PERMISSION_WARNINGS.add("ELB (Elastic Load Balancing)")
 
     # 7. RDS DB Instances
     try:
@@ -437,7 +461,9 @@ def process_regional(session, region, dry_run=True):
                     except Exception: pass
                 print_status("info", f"Deleting RDS DB Instance: {db_id}", region)
                 rds.delete_db_instance(DBInstanceIdentifier=db_id, SkipFinalSnapshot=True)
-    except Exception: pass
+    except Exception as e:
+        if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
+            PERMISSION_WARNINGS.add("RDS (Relational Database Service)")
 
     # 8. RDS DB Cluster Snapshots
     try:
@@ -449,7 +475,9 @@ def process_regional(session, region, dry_run=True):
                 if not dry_run:
                     print_status("info", f"Deleting RDS Cluster Snapshot: {snap_id}", region)
                     rds.delete_db_cluster_snapshot(DBClusterSnapshotIdentifier=snap_id)
-    except Exception: pass
+    except Exception as e:
+        if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
+            PERMISSION_WARNINGS.add("RDS (Relational Database Service)")
 
     # 9. RDS Automated Backups
     try:
@@ -460,7 +488,9 @@ def process_regional(session, region, dry_run=True):
             if not dry_run:
                 print_status("info", f"Deleting RDS Retained Backup...", region)
                 rds.delete_db_instance_automated_backups(DbInstanceAutomatedBackupsArn=backup_arn)
-    except Exception: pass
+    except Exception as e:
+        if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
+            PERMISSION_WARNINGS.add("RDS (Relational Database Service)")
 
     # 10. DynamoDB Tables
     try:
@@ -470,7 +500,9 @@ def process_regional(session, region, dry_run=True):
             if not dry_run:
                 print_status("info", f"Deleting DynamoDB Table: {table}", region)
                 ddb.delete_table(TableName=table)
-    except Exception: pass
+    except Exception as e:
+        if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
+            PERMISSION_WARNINGS.add("DynamoDB")
 
     return found
 
@@ -591,16 +623,29 @@ def main():
     print_header("Scan Summary")
     if not all_resources:
         print(f"{Colors.GREEN}No active billing resources found in this AWS account.{Colors.RESET}")
-        return
-        
-    print(f"Total resources found: {Colors.BOLD}{len(all_resources)}{Colors.RESET}")
-    print("\nSummary List:")
-    for item in all_resources:
-        name_str = f" ({item['name']})" if 'name' in item else ""
-        region_str = f" in region {item['region']}" if 'region' in item else " (global)"
-        print(f"  - {Colors.YELLOW}{item['type']}{Colors.RESET}: {item['id']}{name_str}{region_str}")
+    else:
+        print(f"Total resources found: {Colors.BOLD}{len(all_resources)}{Colors.RESET}")
+        print("\nSummary List:")
+        for item in all_resources:
+            name_str = f" ({item['name']})" if 'name' in item else ""
+            region_str = f" in region {item['region']}" if 'region' in item else " (global)"
+            print(f"  - {Colors.YELLOW}{item['type']}{Colors.RESET}: {item['id']}{name_str}{region_str}")
         
     print("=" * 60)
+
+    # Print permission warnings if any occurred
+    if PERMISSION_WARNINGS:
+        print_header("Scan Warnings (Missing Permissions)")
+        print(f" {Colors.YELLOW}[!]{Colors.RESET} Insufficient permissions detected for the following services:")
+        for service in sorted(PERMISSION_WARNINGS):
+            print(f"     - {service}")
+        print(f"\n {Colors.BLUE}[i]{Colors.RESET} Note: Active resources under these services could not be scanned")
+        print("     or deleted. If you want a complete cleanup, ensure your IAM user has")
+        print("     appropriate policies (e.g. 'AdministratorAccess') attached in the AWS console.")
+        print("=" * 60)
+
+    if not all_resources:
+        return
     
     # Interactive confirmation prompt
     try:
