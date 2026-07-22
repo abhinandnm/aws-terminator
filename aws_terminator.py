@@ -804,8 +804,8 @@ def main():
         for service in sorted(PERMISSION_WARNINGS):
             print(f"     - {service}")
         print(f"\n {Colors.BLUE}[i]{Colors.RESET} Note: Active resources under these services could not be scanned")
-        print("     or deleted. To resolve these errors, please refer to the detailed guide in:")
-        print(f"     {Colors.CYAN}PERMISSIONS.md{Colors.RESET} in your project directory.")
+        print("     or deleted. To resolve these errors, refer to the detailed guide in:")
+        print(f"     {Colors.CYAN}PERMISSIONS.md{Colors.RESET} or ask your AI coding assistant to generate the correct policies.")
         print("=" * 60)
 
     if not all_resources:
