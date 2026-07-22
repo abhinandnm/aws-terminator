@@ -87,10 +87,8 @@ python aws_eraser.py
 4. It prompts: `[WARNING] Are you absolutely sure you want to delete all the above resources? (Type 'yes' to nuke): `.
 5. If the user inputs 'yes', the script runs the deletion sequence. Any other input exits safely.
 
-![AWS Eraser Dry Run Scan Preview](assets/scan_preview.png?v=2)
-
 #### 4. Active Resource Termination Output
-![AWS Eraser Nuke Deletion Execution Preview](assets/deletion_preview.png?v=2)
+![AWS Eraser Nuke Deletion Execution Preview](assets/deletion_preview.png?v=5)
 
 ---
 
