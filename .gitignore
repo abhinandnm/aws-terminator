@@ -1,0 +1,18 @@
+# AWS Credentials & Secrets (CRITICAL SECURITY)
+credentials.json
+.env
+*.pem
+*.csv
+.aws/
+
+# Python Cache & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.idea/
+.vscode/
+.DS_Store
