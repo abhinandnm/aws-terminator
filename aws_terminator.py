@@ -13,14 +13,36 @@ TIMEOUT_CONFIG = Config(
     retries={'max_attempts': 1}
 )
 
+# Approximate baseline monthly costs for common AWS resources (USD)
+PRICING_ESTIMATES = {
+    'NAT Gateway': 32.40,            # ~$0.045/hour
+    'Elastic IP': 3.60,              # ~$0.005/hour (unattached/all public IPs)
+    'Load Balancer (v2)': 16.20,     # ~$0.0225/hour baseline
+    'Load Balancer (Classic)': 16.20,# ~$0.0225/hour baseline
+    'VPC Endpoint': 7.20,            # ~$0.01/hour baseline
+    'VPN Connection': 36.00,         # ~$0.05/hour
+    'VPN Gateway': 0.00,             # Gateway itself is free, connection charges apply
+    'Transit Gateway': 36.00,        # ~$0.05/hour attachment baseline
+    'WAFv2 Web ACL': 5.00,           # $5.00/month baseline (plus $1.00 per rule)
+    'EC2 Instance': 8.50,            # General estimate for t3.micro/small instance baseline
+    'RDS DB Instance': 15.00,        # General estimate for t3.micro database baseline
+    'RDS Cluster Snapshot': 0.10,    # Est. per-GB backup storage cost
+    'RDS Retained Backup': 0.10,     # Est. per-GB backup storage cost
+    'Lightsail Instance': 3.50,      # Smallest Lightsail instance baseline
+    'Lightsail Database': 15.00,     # Smallest Lightsail database baseline
+    'S3 Bucket': 0.00,               # Storage dependent, baseline shown as $0.00
+    'DynamoDB Table': 0.50,          # Est. baseline capacity costs if not free-tier
+    'Customer Gateway': 0.00,
+    'CloudFront Distribution': 0.00  # Usage dependent (no baseline flat fee)
+}
+
 def print_header(title):
     print("\n" + "=" * 60)
     print(f" {title.upper()} ".center(60, "="))
     print("=" * 60)
 
-# Retrieve credentials either from credentials.json, environment, or direct console input
+# Retrieve credentials either from credentials.json or direct console input
 def get_credentials():
-    # 1. Check if credentials.json exists
     creds_path = "credentials.json"
     if os.path.exists(creds_path):
         try:
@@ -31,7 +53,6 @@ def get_credentials():
         except Exception:
             pass
             
-    # 2. Prompt user directly in the console
     print_header("AWS Credentials Setup")
     print("No credentials.json file found. Please enter your AWS credentials:")
     try:
@@ -223,17 +244,13 @@ def process_lightsail(session, dry_run=True):
             pass
     return found
 
-# Regional resource manager (EC2, RDS, VPC elements, DynamoDB, ECS/EKS)
+# Regional resource manager
 def process_regional(session, region, dry_run=True):
     found = []
-    
-    # Initialize clients
     try:
         ec2 = session.client('ec2', region_name=region, config=TIMEOUT_CONFIG)
         rds = session.client('rds', region_name=region, config=TIMEOUT_CONFIG)
         ddb = session.client('dynamodb', region_name=region, config=TIMEOUT_CONFIG)
-        eks = session.client('eks', region_name=region, config=TIMEOUT_CONFIG)
-        ecs = session.client('ecs', region_name=region, config=TIMEOUT_CONFIG)
     except Exception:
         return found
 
@@ -384,17 +401,34 @@ def process_regional(session, region, dry_run=True):
 
     return found
 
+def run_nuke(session, regions, all_resources):
+    print_header("Executing Nuke Deletion")
+    
+    # 1. CloudFront Distributions
+    process_cloudfront(session, dry_run=False)
+    
+    # 2. Global / CloudFront WAFv2
+    process_wafv2(session, 'us-east-1', 'CLOUDFRONT', dry_run=False)
+    
+    # 3. S3 Buckets
+    process_s3(session, dry_run=False)
+    
+    # 4. Lightsail
+    process_lightsail(session, dry_run=False)
+    
+    # 5. Regional Services
+    for index, r in enumerate(regions):
+        print(f"[{index + 1}/{len(regions)}] Nuking region: {r}...")
+        process_wafv2(session, r, 'REGIONAL', dry_run=False)
+        process_regional(session, r, dry_run=False)
+
 def main():
-    dry_run = True
-    if len(sys.argv) > 1 and sys.argv[1] == '--nuke':
-        dry_run = False
-        
-    print_header("AWS Unified Resource Manager")
-    print(f"Mode: {'SCAN ONLY (Dry-Run)' if dry_run else 'NUKE (DESTRUCTIVE DELETE)'}")
+    print_header("AWS Terminator (Dry-Run Scan)")
     
     creds = get_credentials()
     session = get_session(creds)
     
+    # Test authentication
     try:
         sts = session.client('sts', config=TIMEOUT_CONFIG)
         identity = sts.get_caller_identity()
@@ -409,24 +443,21 @@ def main():
     regions = get_all_regions(session)
     print(f"Found {len(regions)} regions to scan.")
     
+    # Run Dry-Run scan first
     all_resources = []
     
-    # 1. Global Services (CloudFront, Global WAF, S3)
     print_header("Scanning Global Services")
-    all_resources.extend(process_cloudfront(session, dry_run))
-    all_resources.extend(process_wafv2(session, 'us-east-1', 'CLOUDFRONT', dry_run))
-    all_resources.extend(process_s3(session, dry_run))
+    all_resources.extend(process_cloudfront(session, dry_run=True))
+    all_resources.extend(process_wafv2(session, 'us-east-1', 'CLOUDFRONT', dry_run=True))
+    all_resources.extend(process_s3(session, dry_run=True))
+    all_resources.extend(process_lightsail(session, dry_run=True))
     
-    # 2. Lightsail
-    all_resources.extend(process_lightsail(session, dry_run))
-    
-    # 3. Regional Services
     print_header("Scanning Regional Services")
     for index, r in enumerate(regions):
         print(f"[{index + 1}/{len(regions)}] Scanning region: {r}...")
-        res_waf = process_wafv2(session, r, 'REGIONAL', dry_run)
+        res_waf = process_wafv2(session, r, 'REGIONAL', dry_run=True)
         all_resources.extend(res_waf)
-        res_reg = process_regional(session, r, dry_run)
+        res_reg = process_regional(session, r, dry_run=True)
         all_resources.extend(res_reg)
         
     # Summary of findings
@@ -435,23 +466,38 @@ def main():
         print("No active billing resources found in this AWS account.")
         return
         
+    total_savings = 0.0
     print(f"Total resources found: {len(all_resources)}")
-    print("\nSummary List:")
+    print("\nSummary List with Cost Estimates:")
     for item in all_resources:
         name_str = f" ({item['name']})" if 'name' in item else ""
         region_str = f" in region {item['region']}" if 'region' in item else " (global)"
-        print(f"  - {item['type']}: {item['id']}{name_str}{region_str}")
         
-    if dry_run:
-        print("\n" + "!" * 60)
-        print("To delete these resources, run the script with --nuke flag:")
-        print("  python aws_clean_manager.py --nuke")
-        print("!" * 60)
-    else:
-        print("\n" + "=" * 60)
-        print("NUKE PROCESS FINISHED. Some deletions are asynchronous and take time.")
-        print("Please re-run the scan to verify all resources are successfully deleted.")
-        print("=" * 60)
+        # Calculate cost estimates
+        cost_baseline = PRICING_ESTIMATES.get(item['type'], 0.0)
+        cost_str = f"${cost_baseline:.2f}/mo baseline" if cost_baseline > 0 else "usage-dependent / free"
+        total_savings += cost_baseline
+        
+        print(f"  - {item['type']}: {item['id']}{name_str}{region_str} [{cost_str}]")
+        
+    print("-" * 60)
+    print(f"ESTIMATED MONTHLY SAVINGS BY NUKING: ${total_savings:.2f} / month")
+    print("=" * 60)
+    
+    # Interactive confirmation prompt
+    try:
+        confirm = input("\n⚠️  Are you absolutely sure you want to delete all the above resources? (Type 'yes' to nuke): ").strip().lower()
+        if confirm == 'yes':
+            run_nuke(session, regions, all_resources)
+            print_header("Nuke Process Complete")
+            print("NUKE PROCESS FINISHED. Some deletions are asynchronous and take time.")
+            print("Please re-run the script to verify all resources are successfully deleted.")
+            print("=" * 60)
+        else:
+            print("\nNuke cancelled. No resources were deleted.")
+    except KeyboardInterrupt:
+        print("\nNuke cancelled.")
+        sys.exit(0)
 
 if __name__ == '__main__':
     main()

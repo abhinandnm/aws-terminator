@@ -1,15 +1,17 @@
 # AWS Terminator (Python) 🚀
 
-A lightweight, unbuffered, and highly optimized Python script designed to scan and destroy active billing resources across all AWS regions to prevent unexpected cloud bills.
+A lightweight, unbuffered, and highly optimized Python script designed to scan active billing resources across all AWS regions, estimate your monthly cost savings, and safely prompt you for confirmation before nuking everything.
 
 > [!WARNING]
 > **This tool is highly destructive and irreversible.** 
-> Running this script with the `--nuke` flag will permanently delete resources (like databases, EC2 instances, S3 buckets, and WAF configurations) from your AWS account. Always review the scan results in dry-run mode before proceeding.
+> Confirming the nuke prompt will permanently delete resources (like databases, EC2 instances, S3 buckets, and WAF configurations) from your AWS account. Always review the scan results and cost estimates before typing 'yes'.
 
 ---
 
 ## Key Features
 
+* **Interactive Confirmation:** Always scans in dry-run mode first, shows you the resources and monthly pricing baseline, and asks: `Are you absolutely sure you want to delete all the above resources? (Type 'yes' to nuke)`.
+* **Cost Estimation:** Estimates the monthly billing costs for detected resources (like NAT Gateways, Elastic IPs, EC2, RDS, and WAF) so you know exactly where your bills are coming from.
 * **Unbuffered Execution:** Prints logs in real-time so you can monitor progress.
 * **Instant Skipping:** Configured with a 2-second connection timeout to instantly skip disabled or opt-in regions, preventing long connection hangs.
 * **Interactive Console Entry:** Prompts for credentials directly in the terminal if no config file is found (eliminating the need to store keys on disk).
@@ -43,26 +45,17 @@ pip install boto3
 
 ### 2. Usage
 
-Run the script. It supports two modes:
-
-#### A. Scan Only (Dry-Run Mode) - Safe
-This will scan all regions and list active resources without deleting anything:
+Run the script:
 ```bash
 python aws_terminator.py
 ```
 
-#### B. Nuke Mode (Destructive Deletion) - Dangerous
-This will scan all regions and delete any found billing resources:
-```bash
-python aws_terminator.py --nuke
-```
-
-### 3. Authentication Options
-
-When you run the script, it will check for credentials in this order:
-1. A local `credentials.json` file in the folder (format: `{"aws_access_key_id": "...", "aws_secret_access_key": "..."}`).
-2. Standard environment variables (`AWS_ACCESS_KEY_ID`, etc.).
-3. **Console Prompt (Default):** If neither is found, it will securely prompt you to type or paste your keys directly into the terminal console.
+### 3. Execution Flow
+1. The script will look for `credentials.json` in the folder. If not found, it will securely prompt you to type or paste your AWS Access Key ID and Secret Access Key.
+2. It will query all 34 regions and list all active billing resources.
+3. It will display the **Estimated Monthly Savings** by nuking these resources.
+4. It will prompt you: `Are you absolutely sure you want to delete all the above resources? (Type 'yes' to nuke)`.
+5. If you type `yes`, it will run the deletion pass and wipe the resources.
 
 ---
 
