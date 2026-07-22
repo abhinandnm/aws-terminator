@@ -81,7 +81,7 @@ class Spinner:
         sys.stdout.flush()
 
 def print_banner():
-    # Large block letters for AWS and TERMINATOR
+    # Large block letters for AWS (CYAN) and TERMINATOR (RED)
     banner_lines = [
         "",
         f" {Colors.CYAN}█████╗ ██╗    ██╗███████╗{Colors.RESET}",
@@ -91,16 +91,12 @@ def print_banner():
         f" {Colors.CYAN}██║  ██║╚███╔███╔╝███████║{Colors.RESET}",
         f" {Colors.CYAN}╚═╝  ╚═╝ ╚══╝╚══╝ ╚══════╝{Colors.RESET}",
         "",
-        f" {Colors.CYAN}████████╗███████╗██████╗ ███╗   ███╗██╗███╗   ██╗ █████╗ ████████╗ ██████╗ ██████╗{Colors.RESET}",
-        f" {Colors.CYAN}╚══██╔══╝██╔════╝██╔══██╗████╗ ████║██║████╗  ██║██╔══██╗╚══██╔══╝██╔═══██╗██╔══██╗{Colors.RESET}",
-        f" {Colors.CYAN}   ██║   █████╗  ██████╔╝██╔████╔██║██║██╔██╗ ██║███████║   ██║   ██║   ██║██████╔╝{Colors.RESET}",
-        f" {Colors.CYAN}   ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║██║██║╚██╗██║██╔══██║   ██║   ██║   ██║██╔══██╗{Colors.RESET}",
-        f" {Colors.CYAN}   ██║   ███████╗██║  ██║██║ ╚═╝ ██║██║██║ ╚████║██║  ██║   ██║   ╚██████╔╝██║  ██║{Colors.RESET}",
-        f" {Colors.CYAN}   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝{Colors.RESET}",
-        "",
-        f" {Colors.GRAY}CLI Version 1.0.0 • Commit main-latest{Colors.RESET}",
-        f" {Colors.GRAY}Cost-saving cleanup utility for AWS environments.{Colors.RESET}",
-        f" {Colors.GRAY}Type 'yes' when prompted to nuke resources.{Colors.RESET}",
+        f" {Colors.RED}████████╗███████╗██████╗ ███╗   ███╗██╗███╗   ██╗ █████╗ ████████╗ ██████╗ ██████╗{Colors.RESET}",
+        f" {Colors.RED}╚══██╔══╝██╔════╝██╔══██╗████╗ ████║██║████╗  ██║██╔══██╗╚══██╔══╝██╔═══██╗██╔══██╗{Colors.RESET}",
+        f" {Colors.RED}   ██║   █████╗  ██████╔╝██╔████╔██║██║██╔██╗ ██║███████║   ██║   ██║   ██║██████╔╝{Colors.RESET}",
+        f" {Colors.RED}   ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║██║██║╚██╗██║██╔══██║   ██║   ██║   ██║██╔══██╗{Colors.RESET}",
+        f" {Colors.RED}   ██║   ███████╗██║  ██║██║ ╚═╝ ██║██║██║ ╚████║██║  ██║   ██║   ╚██████╔╝██║  ██║{Colors.RESET}",
+        f" {Colors.RED}   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝{Colors.RESET}",
         ""
     ]
     
@@ -730,7 +726,6 @@ def run_nuke(session, regions, all_resources):
 
 def main():
     print_banner()
-    print_header("AWS Terminator (Dry-Run Scan)")
     
     creds = get_credentials()
     session = get_session(creds)
