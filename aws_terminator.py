@@ -679,7 +679,7 @@ def print_billing_dashboard_costs(session):
         
         results = response.get('ResultsByTime', [])
         if not results:
-            return False
+            return False, "No results returned from Cost Explorer API."
             
         print_header("Accrued Billing Dashboard Cost (Current Month)")
         total_cost = 0.0
@@ -698,10 +698,10 @@ def print_billing_dashboard_costs(session):
         print(f"{Colors.CYAN}    Once deleted, resources stop accumulating costs, but their past accrued charges{Colors.RESET}")
         print(f"{Colors.CYAN}    will remain visible on your bill history until the billing cycle ends.{Colors.RESET}")
         print("=" * 60)
-        return True
-    except Exception:
-        # Return False if access is denied or Cost Explorer is not enabled
-        return False
+        return True, ""
+    except Exception as e:
+        # Return False and the exception details
+        return False, str(e)
 
 def run_nuke(session, regions, all_resources):
     print_header("Executing Nuke Deletion")
@@ -742,9 +742,11 @@ def main():
         sys.exit(1)
         
     # Attempt to print real AWS billing dashboard details
-    billing_shown = print_billing_dashboard_costs(session)
+    billing_shown, billing_error = print_billing_dashboard_costs(session)
     if not billing_shown:
         print_status("warning", "Access Denied or Cost Explorer disabled. Skipping billing dashboard cost display.")
+        if billing_error:
+            print(f"     {Colors.RED}AWS Response Error: {billing_error}{Colors.RESET}")
         print(f"     {Colors.CYAN}To display billing details, ensure your IAM user has 'ce:GetCostAndUsage' permissions{Colors.RESET}")
         print(f"     {Colors.CYAN}(e.g., attach the 'AWSBillingReadOnlyAccess' managed policy to the user) and{Colors.RESET}")
         print(f"     {Colors.CYAN}IAM billing console access is enabled in your AWS root account settings.{Colors.RESET}")
