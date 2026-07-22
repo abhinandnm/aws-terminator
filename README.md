@@ -1,4 +1,4 @@
-# AWS Eraser 🧹⚡
+# AWS Eraser 🧹
 
 The **fastest and simplest solution** to scan, audit, and clean active billing resources across all 34 AWS regions. A single-file, zero-cloud-setup Python CLI utility to stop unexpected AWS billing charges instantly.
 ![AWS Eraser Banner](assets/banner.png?v=5)
