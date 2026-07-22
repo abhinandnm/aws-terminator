@@ -746,10 +746,12 @@ def main():
     if not billing_shown:
         print_status("warning", "Access Denied or Cost Explorer disabled. Skipping billing dashboard cost display.")
         if billing_error:
-            print(f"     {Colors.RED}AWS Response Error: {billing_error}{Colors.RESET}")
-        print(f"     {Colors.CYAN}To display billing details, ensure your IAM user has 'ce:GetCostAndUsage' permissions{Colors.RESET}")
-        print(f"     {Colors.CYAN}(e.g., attach the 'AWSBillingReadOnlyAccess' managed policy to the user) and{Colors.RESET}")
-        print(f"     {Colors.CYAN}IAM billing console access is enabled in your AWS root account settings.{Colors.RESET}")
+            print(f"     {Colors.RED}AWS Error Details: {billing_error}{Colors.RESET}")
+        print(f"     {Colors.CYAN}How to resolve this in 2 simple steps:{Colors.RESET}")
+        print(f"       1. Activate IAM Billing Access (must be done by AWS Root User account) at:{Colors.RESET}")
+        print(f"          https://console.aws.amazon.com/billing/home?#/account{Colors.RESET}")
+        print(f"       2. Attach the 'AWSBillingReadOnlyAccess' managed policy to your IAM User/Role at:{Colors.RESET}")
+        print(f"          https://console.aws.amazon.com/iam/home?#/users{Colors.RESET}")
         
     print("\nRetrieving AWS regions...")
     regions = get_all_regions(session)
