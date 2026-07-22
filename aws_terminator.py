@@ -1,8 +1,23 @@
 import sys
 import os
-import json
+import subprocess
+
+# 1. Automate Dependency Installation
+try:
+    import boto3
+except ImportError:
+    print("Dependency 'boto3' not found. Installing automatically via pip...")
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "boto3"])
+        import boto3
+        print("Dependency 'boto3' installed successfully!")
+    except Exception as e:
+        print(f"Failed to automatically install 'boto3': {e}")
+        print("Please install it manually using: pip install boto3")
+        sys.exit(1)
+
 import time
-import boto3
+import json
 from botocore.exceptions import ClientError
 from botocore.config import Config
 
@@ -25,29 +40,6 @@ TIMEOUT_CONFIG = Config(
     retries={'max_attempts': 1}
 )
 
-# Approximate baseline monthly costs for common AWS resources (USD)
-PRICING_ESTIMATES = {
-    'NAT Gateway': 32.40,            # ~$0.045/hour
-    'Elastic IP': 3.60,              # ~$0.005/hour (unattached/all public IPs)
-    'Load Balancer (v2)': 16.20,     # ~$0.0225/hour baseline
-    'Load Balancer (Classic)': 16.20,# ~$0.0225/hour baseline
-    'VPC Endpoint': 7.20,            # ~$0.01/hour baseline
-    'VPN Connection': 36.00,         # ~$0.05/hour
-    'VPN Gateway': 0.00,             # Gateway itself is free, connection charges apply
-    'Transit Gateway': 36.00,        # ~$0.05/hour attachment baseline
-    'WAFv2 Web ACL': 5.00,           # $5.00/month baseline (plus $1.00 per rule)
-    'EC2 Instance': 8.50,            # General estimate for t3.micro/small instance baseline
-    'RDS DB Instance': 15.00,        # General estimate for t3.micro database baseline
-    'RDS Cluster Snapshot': 0.10,    # Est. per-GB backup storage cost
-    'RDS Retained Backup': 0.10,     # Est. per-GB backup storage cost
-    'Lightsail Instance': 3.50,      # Smallest Lightsail instance baseline
-    'Lightsail Database': 15.00,     # Smallest Lightsail database baseline
-    'S3 Bucket': 0.00,               # Storage dependent, baseline shown as $0.00
-    'DynamoDB Table': 0.50,          # Est. baseline capacity costs if not free-tier
-    'Customer Gateway': 0.00,
-    'CloudFront Distribution': 0.00  # Usage dependent (no baseline flat fee)
-}
-
 def print_header(title):
     print(f"\n{Colors.BOLD}{Colors.CYAN}" + "=" * 60)
     print(f" {title.upper()} ".center(60, "="))
@@ -56,13 +48,13 @@ def print_header(title):
 def print_status(status_type, message, region=None):
     region_str = f" [{region}]" if region else ""
     if status_type == "info":
-        print(f" {Colors.BLUE}ℹ{Colors.RESET}{region_str} {message}")
+        print(f" {Colors.BLUE}[i]{Colors.RESET}{region_str} {message}")
     elif status_type == "success":
-        print(f" {Colors.GREEN}✔{Colors.RESET}{region_str} {message}")
+        print(f" {Colors.GREEN}[OK]{Colors.RESET}{region_str} {message}")
     elif status_type == "warning":
-        print(f" {Colors.YELLOW}⚠{Colors.RESET}{region_str} {message}")
+        print(f" {Colors.YELLOW}[!]{Colors.RESET}{region_str} {message}")
     elif status_type == "error":
-        print(f" {Colors.RED}✖{Colors.RESET}{region_str} {message}")
+        print(f" {Colors.RED}[X]{Colors.RESET}{region_str} {message}")
 
 # Retrieve credentials either from credentials.json or direct console input
 def get_credentials():
@@ -423,6 +415,52 @@ def process_regional(session, region, dry_run=True):
 
     return found
 
+# Query the real Cost Explorer dashboard costs
+def print_billing_dashboard_costs(session):
+    try:
+        # Cost Explorer requires regional endpoints (us-east-1 for pricing/CE API queries)
+        ce = session.client('ce', region_name='us-east-1', config=TIMEOUT_CONFIG)
+        
+        from datetime import datetime, timedelta, timezone
+        end_date = datetime.now(timezone.utc).date()
+        # Set start date to the beginning of the current month
+        start_date = end_date.replace(day=1)
+        if start_date == end_date:
+            start_date = start_date - timedelta(days=1)
+            
+        response = ce.get_cost_and_usage(
+            TimePeriod={
+                'Start': start_date.strftime('%Y-%m-%d'),
+                'End': end_date.strftime('%Y-%m-%d')
+            },
+            Granularity='MONTHLY',
+            Metrics=['UnblendedCost'],
+            GroupBy=[{'Type': 'DIMENSION', 'Key': 'SERVICE'}]
+        )
+        
+        results = response.get('ResultsByTime', [])
+        if not results:
+            return False
+            
+        print_header("Accrued Billing Dashboard Cost (Current Month)")
+        total_cost = 0.0
+        groups = results[0].get('Groups', [])
+        
+        for group in groups:
+            service_name = group['Keys'][0]
+            amount = float(group['Metrics']['UnblendedCost']['Amount'])
+            if amount > 0.01:
+                total_cost += amount
+                print(f"  - {Colors.YELLOW}{service_name}{Colors.RESET}: ${amount:.2f}")
+                
+        print("-" * 60)
+        print(f"{Colors.BOLD}{Colors.GREEN}TOTAL CURRENT MONTH BILL: ${total_cost:.2f}{Colors.RESET}")
+        print("=" * 60)
+        return True
+    except Exception:
+        # Return False if access is denied or Cost Explorer is not enabled
+        return False
+
 def run_nuke(session, regions, all_resources):
     print_header("Executing Nuke Deletion")
     
@@ -461,6 +499,11 @@ def main():
         print_status("error", f"Authentication failed: {e}")
         sys.exit(1)
         
+    # Attempt to print real AWS billing dashboard details
+    billing_shown = print_billing_dashboard_costs(session)
+    if not billing_shown:
+        print_status("warning", "Access Denied or Cost Explorer disabled. Skipping billing dashboard cost display.")
+        
     print("\nRetrieving AWS regions...")
     regions = get_all_regions(session)
     print_status("info", f"Found {len(regions)} regions to scan.")
@@ -488,31 +531,22 @@ def main():
         print(f"{Colors.GREEN}No active billing resources found in this AWS account.{Colors.RESET}")
         return
         
-    total_savings = 0.0
     print(f"Total resources found: {Colors.BOLD}{len(all_resources)}{Colors.RESET}")
-    print("\nSummary List with Cost Estimates:")
+    print("\nSummary List:")
     for item in all_resources:
         name_str = f" ({item['name']})" if 'name' in item else ""
         region_str = f" in region {item['region']}" if 'region' in item else " (global)"
+        print(f"  - {Colors.YELLOW}{item['type']}{Colors.RESET}: {item['id']}{name_str}{region_str}")
         
-        # Calculate cost estimates
-        cost_baseline = PRICING_ESTIMATES.get(item['type'], 0.0)
-        cost_str = f"${cost_baseline:.2f}/mo baseline" if cost_baseline > 0 else "usage-dependent / free"
-        total_savings += cost_baseline
-        
-        print(f"  - {Colors.YELLOW}{item['type']}{Colors.RESET}: {item['id']}{name_str}{region_str} [{Colors.CYAN}{cost_str}{Colors.RESET}]")
-        
-    print("-" * 60)
-    print(f"{Colors.BOLD}{Colors.GREEN}ESTIMATED MONTHLY SAVINGS BY NUKING: ${total_savings:.2f} / month{Colors.RESET}")
     print("=" * 60)
     
     # Interactive confirmation prompt
     try:
-        confirm = input(f"\n⚠️  {Colors.BOLD}{Colors.RED}Are you absolutely sure you want to delete all the above resources? (Type 'yes' to nuke): {Colors.RESET}").strip().lower()
+        confirm = input(f"\n[WARNING] {Colors.BOLD}{Colors.RED}Are you absolutely sure you want to delete all the above resources? (Type 'yes' to nuke): {Colors.RESET}").strip().lower()
         if confirm == 'yes':
             run_nuke(session, regions, all_resources)
             print_header("Nuke Process Complete")
-            print(f"{Colors.GREEN}✔ NUKE PROCESS FINISHED. Some deletions are asynchronous and take time.{Colors.RESET}")
+            print(f"{Colors.GREEN}[OK] NUKE PROCESS FINISHED. Some deletions are asynchronous and take time.{Colors.RESET}")
             print("Please re-run the script to verify all resources are successfully deleted.")
             print("=" * 60)
         else:
