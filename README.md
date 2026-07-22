@@ -1,7 +1,7 @@
 # AWS Eraser
 
 A lightweight, unbuffered, and optimized Python script designed to scan active billing resources across all AWS regions, retrieve monthly cost savings data, and prompt the user for confirmation before performing any deletion.
-
+![AWS Eraser Banner](assets/banner.png?v=5)
 
 
 ## Release
