@@ -3,6 +3,7 @@
 A lightweight, unbuffered, and optimized Python script designed to scan active billing resources across all AWS regions, retrieve monthly cost savings data, and prompt the user for confirmation before performing any deletion.
 
 
+
 ## Release
 
 **v1.0.0 – Initial Stable Release**
