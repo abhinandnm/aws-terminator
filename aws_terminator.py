@@ -24,7 +24,19 @@ from botocore.config import Config
 # Enable ANSI escape sequences on Windows CMD
 os.system('')
 
-
+# Disable QuickEdit Mode on Windows Console to prevent accidental freeze on mouse clicks
+if sys.platform == 'win32':
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        hStdIn = kernel32.GetStdHandle(-10) # STD_INPUT_HANDLE = -10
+        mode = ctypes.c_ulong()
+        kernel32.GetConsoleMode(hStdIn, ctypes.byref(mode))
+        # 0x0040 is ENABLE_QUICK_EDIT_MODE, 0x0080 is ENABLE_EXTENDED_FLAGS
+        new_mode = (mode.value & ~0x0040) | 0x0080
+        kernel32.SetConsoleMode(hStdIn, new_mode)
+    except Exception:
+        pass
 
 class Colors:
     BLUE = '\033[94m'
