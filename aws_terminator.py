@@ -24,19 +24,7 @@ from botocore.config import Config
 # Enable ANSI escape sequences on Windows CMD
 os.system('')
 
-# Disable QuickEdit Mode on Windows Console to prevent accidental freeze on mouse clicks
-if sys.platform == 'win32':
-    try:
-        import ctypes
-        kernel32 = ctypes.windll.kernel32
-        hStdIn = kernel32.GetStdHandle(-10) # STD_INPUT_HANDLE = -10
-        mode = ctypes.c_ulong()
-        kernel32.GetConsoleMode(hStdIn, ctypes.byref(mode))
-        # 0x0040 is ENABLE_QUICK_EDIT_MODE, 0x0080 is ENABLE_EXTENDED_FLAGS
-        new_mode = (mode.value & ~0x0040) | 0x0080
-        kernel32.SetConsoleMode(hStdIn, new_mode)
-    except Exception:
-        pass
+
 
 class Colors:
     BLUE = '\033[94m'
@@ -597,6 +585,8 @@ def main():
     billing_shown = print_billing_dashboard_costs(session)
     if not billing_shown:
         print_status("warning", "Access Denied or Cost Explorer disabled. Skipping billing dashboard cost display.")
+        print(f"     {Colors.CYAN}To display billing details, ensure your IAM user has the 'ce:GetCostAndUsage' policy, and{Colors.RESET}")
+        print(f"     {Colors.CYAN}IAM User/Role Access to billing information is enabled under your AWS Account settings.{Colors.RESET}")
         
     print("\nRetrieving AWS regions...")
     regions = get_all_regions(session)
