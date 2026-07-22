@@ -24,6 +24,8 @@ from botocore.config import Config
 # Enable ANSI escape sequences on Windows CMD
 os.system('')
 
+
+
 class Colors:
     BLUE = '\033[94m'
     CYAN = '\033[96m'
@@ -258,6 +260,15 @@ def process_lightsail(session, dry_run=True):
             pass
     return found
 
+# Helper to extract Name tag from resource tags list
+def get_name_from_tags(tags):
+    if not tags:
+        return ""
+    for tag in tags:
+        if tag.get('Key') == 'Name':
+            return tag.get('Value', '')
+    return ""
+
 # Regional resource manager
 def process_regional(session, region, dry_run=True):
     found = []
@@ -280,8 +291,15 @@ def process_regional(session, region, dry_run=True):
                         
         for inst in instances:
             inst_id = inst['InstanceId']
-            print_status("warning", f"Found EC2 Instance: {inst_id}", region)
-            found.append({'type': 'EC2 Instance', 'id': inst_id, 'region': region})
+            name = get_name_from_tags(inst.get('Tags', []))
+            print_name = f" ({name})" if name else ""
+            print_status("warning", f"Found EC2 Instance: {inst_id}{print_name}", region)
+            
+            res_item = {'type': 'EC2 Instance', 'id': inst_id, 'region': region}
+            if name:
+                res_item['name'] = name
+            found.append(res_item)
+            
             if not dry_run:
                 print_status("info", f"Terminating EC2 Instance: {inst_id}", region)
                 ec2.terminate_instances(InstanceIds=[inst_id])
@@ -297,8 +315,15 @@ def process_regional(session, region, dry_run=True):
         for vol in volumes:
             vol_id = vol['VolumeId']
             state = vol['State']
-            print_status("warning", f"Found EBS Volume: {vol_id} ({state})", region)
-            found.append({'type': 'EBS Volume', 'id': vol_id, 'region': region})
+            name = get_name_from_tags(vol.get('Tags', []))
+            print_name = f" ({name})" if name else ""
+            print_status("warning", f"Found EBS Volume: {vol_id}{print_name} ({state})", region)
+            
+            res_item = {'type': 'EBS Volume', 'id': vol_id, 'region': region}
+            if name:
+                res_item['name'] = name
+            found.append(res_item)
+            
             if not dry_run:
                 if state == 'in-use':
                     try:
@@ -317,8 +342,15 @@ def process_regional(session, region, dry_run=True):
             alloc_id = ip.get('AllocationId')
             public_ip = ip.get('PublicIp')
             association_id = ip.get('AssociationId')
-            print_status("warning", f"Found Elastic IP: {public_ip}", region)
-            found.append({'type': 'Elastic IP', 'id': public_ip, 'region': region})
+            name = get_name_from_tags(ip.get('Tags', []))
+            print_name = f" ({name})" if name else ""
+            print_status("warning", f"Found Elastic IP: {public_ip}{print_name}", region)
+            
+            res_item = {'type': 'Elastic IP', 'id': public_ip, 'region': region}
+            if name:
+                res_item['name'] = name
+            found.append(res_item)
+            
             if not dry_run:
                 if association_id:
                     try: ec2.disassociate_address(AssociationId=association_id)
@@ -334,8 +366,15 @@ def process_regional(session, region, dry_run=True):
         for gw in nat_gws:
             if gw['State'] not in ['deleted', 'deleting']:
                 gw_id = gw['NatGatewayId']
-                print_status("warning", f"Found NAT Gateway: {gw_id}", region)
-                found.append({'type': 'NAT Gateway', 'id': gw_id, 'region': region})
+                name = get_name_from_tags(gw.get('Tags', []))
+                print_name = f" ({name})" if name else ""
+                print_status("warning", f"Found NAT Gateway: {gw_id}{print_name}", region)
+                
+                res_item = {'type': 'NAT Gateway', 'id': gw_id, 'region': region}
+                if name:
+                    res_item['name'] = name
+                found.append(res_item)
+                
                 if not dry_run:
                     print_status("info", f"Deleting NAT Gateway: {gw_id}", region)
                     ec2.delete_nat_gateway(NatGatewayId=gw_id)
@@ -347,8 +386,15 @@ def process_regional(session, region, dry_run=True):
         for ep in endpoints:
             if ep['State'] != 'deleted':
                 ep_id = ep['VpcEndpointId']
-                print_status("warning", f"Found VPC Endpoint: {ep_id}", region)
-                found.append({'type': 'VPC Endpoint', 'id': ep_id, 'region': region})
+                name = get_name_from_tags(ep.get('Tags', []))
+                print_name = f" ({name})" if name else ""
+                print_status("warning", f"Found VPC Endpoint: {ep_id}{print_name}", region)
+                
+                res_item = {'type': 'VPC Endpoint', 'id': ep_id, 'region': region}
+                if name:
+                    res_item['name'] = name
+                found.append(res_item)
+                
                 if not dry_run:
                     print_status("info", f"Deleting VPC Endpoint: {ep_id}...", region)
                     ec2.delete_vpc_endpoints(VpcEndpointIds=[ep_id])
@@ -359,10 +405,11 @@ def process_regional(session, region, dry_run=True):
         elbv2 = session.client('elbv2', region_name=region, config=TIMEOUT_CONFIG)
         for lb in elbv2.describe_load_balancers().get('LoadBalancers', []):
             arn = lb['LoadBalancerArn']
-            print_status("warning", f"Found Load Balancer: {lb['LoadBalancerName']}", region)
-            found.append({'type': 'Load Balancer (v2)', 'id': arn, 'region': region})
+            lb_name = lb['LoadBalancerName']
+            print_status("warning", f"Found Load Balancer: {lb_name}", region)
+            found.append({'type': 'Load Balancer (v2)', 'id': arn, 'name': lb_name, 'region': region})
             if not dry_run:
-                print_status("info", f"Deleting Load Balancer: {lb['LoadBalancerName']}", region)
+                print_status("info", f"Deleting Load Balancer: {lb_name}", region)
                 elbv2.delete_load_balancer(LoadBalancerArn=arn)
     except Exception: pass
 
@@ -455,6 +502,9 @@ def print_billing_dashboard_costs(session):
                 
         print("-" * 60)
         print(f"{Colors.BOLD}{Colors.GREEN}TOTAL CURRENT MONTH BILL: ${total_cost:.2f}{Colors.RESET}")
+        print(f"\n{Colors.CYAN}[i] Note: The billing dashboard shows cumulative accrued costs for the current month.{Colors.RESET}")
+        print(f"{Colors.CYAN}    Once deleted, resources stop accumulating costs, but their past accrued charges{Colors.RESET}")
+        print(f"{Colors.CYAN}    will remain visible on your bill history until the billing cycle ends.{Colors.RESET}")
         print("=" * 60)
         return True
     except Exception:
@@ -483,7 +533,7 @@ def run_nuke(session, regions, all_resources):
         process_regional(session, r, dry_run=False)
 
 def main():
-    print_header("AWS Terminator (Dry-Run Scan)")
+    print_header("AWS Nuke (Dry-Run Scan)")
     
     creds = get_credentials()
     session = get_session(creds)

@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Create a report to help us improve AWS Terminator
+about: Create a report to help us improve AWS Nuke
 title: '[BUG] '
 labels: bug
 assignees: ''
@@ -12,7 +12,7 @@ A clear and concise description of what the bug is.
 
 **How to Reproduce**
 Steps to reproduce the behavior:
-1. Run `python aws_terminator.py`
+1. Run `python awsnuke.py`
 2. Enter keys...
 3. See error at line X...
 
