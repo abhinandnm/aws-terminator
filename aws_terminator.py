@@ -1,6 +1,7 @@
 import sys
 import os
 import subprocess
+import threading
 
 # 1. Automate Dependency Installation
 try:
@@ -44,6 +45,38 @@ TIMEOUT_CONFIG = Config(
 
 # Global tracker for missing IAM permissions
 PERMISSION_WARNINGS = set()
+
+# Thread-based loading spinner for CLI operations
+class Spinner:
+    def __init__(self, message="Working", delay=0.1):
+        self.message = message
+        self.delay = delay
+        # Braille loading spinner characters look extremely professional in modern CLI
+        self.spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+        self._running = False
+        self._thread = None
+
+    def _spin(self):
+        idx = 0
+        while self._running:
+            # Overwrite line and show spinner
+            sys.stdout.write(f"\r {Colors.BLUE}[i]{Colors.RESET} {self.message} {Colors.CYAN}{self.spinner_chars[idx % len(self.spinner_chars)]}{Colors.RESET} ")
+            sys.stdout.flush()
+            time.sleep(self.delay)
+            idx += 1
+
+    def start(self):
+        self._running = True
+        self._thread = threading.Thread(target=self._spin, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._running = False
+        if self._thread:
+            self._thread.join()
+        # Clear the spinner line completely
+        sys.stdout.write("\r" + " " * (len(self.message) + 15) + "\r")
+        sys.stdout.flush()
 
 def print_header(title):
     print(f"\n{Colors.BOLD}{Colors.CYAN}" + "=" * 60)
@@ -218,15 +251,18 @@ def process_s3(session, dry_run=True):
             found.append({'type': 'S3 Bucket', 'id': name, 'region': 'global'})
             
             if not dry_run:
-                print_status("info", f"Deleting S3 Bucket: {name} (clearing contents first)...")
+                spinner = Spinner(f"Deleting S3 Bucket: {name} (clearing contents first)")
+                spinner.start()
                 try:
                     s3_resource = session.resource('s3', config=TIMEOUT_CONFIG)
                     bucket_obj = s3_resource.Bucket(name)
                     bucket_obj.object_versions.delete()
                     bucket_obj.objects.all().delete()
                     s3_client.delete_bucket(Bucket=name)
+                    spinner.stop()
                     print_status("success", f"Successfully deleted bucket: {name}")
                 except Exception as e:
+                    spinner.stop()
                     print_status("error", f"Failed to delete bucket {name}: {e}")
     except Exception as e:
         if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
@@ -252,8 +288,15 @@ def process_lightsail(session, dry_run=True):
                 print_status("warning", f"Found Lightsail Instance: {name}", r)
                 found.append({'type': 'Lightsail Instance', 'id': name, 'region': r})
                 if not dry_run:
-                    print_status("info", f"Deleting Lightsail Instance: {name}", r)
-                    ls.delete_instance(instanceName=name)
+                    spinner = Spinner(f"Deleting Lightsail Instance: {name}")
+                    spinner.start()
+                    try:
+                        ls.delete_instance(instanceName=name)
+                        spinner.stop()
+                        print_status("success", f"Successfully deleted Lightsail Instance: {name}", r)
+                    except Exception as e:
+                        spinner.stop()
+                        print_status("error", f"Failed to delete Lightsail Instance {name}: {e}", r)
             
             # Databases
             dbs = ls.get_relational_databases().get('relationalDatabases', [])
@@ -262,8 +305,15 @@ def process_lightsail(session, dry_run=True):
                 print_status("warning", f"Found Lightsail Database: {name}", r)
                 found.append({'type': 'Lightsail Database', 'id': name, 'region': r})
                 if not dry_run:
-                    print_status("info", f"Deleting Lightsail Database: {name}", r)
-                    ls.delete_relational_database(relationalDatabaseName=name, skipFinalSnapshot=True)
+                    spinner = Spinner(f"Deleting Lightsail Database: {name}")
+                    spinner.start()
+                    try:
+                        ls.delete_relational_database(relationalDatabaseName=name, skipFinalSnapshot=True)
+                        spinner.stop()
+                        print_status("success", f"Successfully deleted Lightsail Database: {name}", r)
+                    except Exception as e:
+                        spinner.stop()
+                        print_status("error", f"Failed to delete Lightsail Database {name}: {e}", r)
         except Exception as e:
             if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
                 PERMISSION_WARNINGS.add("Lightsail")
@@ -312,8 +362,15 @@ def process_regional(session, region, dry_run=True):
             found.append(res_item)
             
             if not dry_run:
-                print_status("info", f"Terminating EC2 Instance: {inst_id}", region)
-                ec2.terminate_instances(InstanceIds=[inst_id])
+                spinner = Spinner(f"Terminating EC2 Instance: {inst_id}")
+                spinner.start()
+                try:
+                    ec2.terminate_instances(InstanceIds=[inst_id])
+                    spinner.stop()
+                    print_status("success", f"Successfully terminated EC2 Instance: {inst_id}", region)
+                except Exception as e:
+                    spinner.stop()
+                    print_status("error", f"Failed to terminate EC2 Instance {inst_id}: {e}", region)
     except ClientError as e:
         if 'AuthFailure' in str(e) or 'UnauthorizedOperation' in str(e) or 'OptInRequired' in str(e):
             if 'UnauthorizedOperation' in str(e):
@@ -339,14 +396,20 @@ def process_regional(session, region, dry_run=True):
             found.append(res_item)
             
             if not dry_run:
-                if state == 'in-use':
-                    try:
-                        ec2.detach_volume(VolumeId=vol_id, Force=True)
-                        time.sleep(2)
-                    except Exception: pass
-                print_status("info", f"Deleting EBS Volume: {vol_id}", region)
-                try: ec2.delete_volume(VolumeId=vol_id)
-                except Exception: pass
+                spinner = Spinner(f"Deleting EBS Volume: {vol_id}")
+                spinner.start()
+                try:
+                    if state == 'in-use':
+                        try:
+                            ec2.detach_volume(VolumeId=vol_id, Force=True)
+                            time.sleep(2)
+                        except Exception: pass
+                    ec2.delete_volume(VolumeId=vol_id)
+                    spinner.stop()
+                    print_status("success", f"Successfully deleted EBS Volume: {vol_id}", region)
+                except Exception as e:
+                    spinner.stop()
+                    print_status("error", f"Failed to delete EBS Volume {vol_id}: {e}", region)
     except Exception as e:
         if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
             PERMISSION_WARNINGS.add("EC2 (Elastic Block Store Volumes)")
@@ -368,12 +431,19 @@ def process_regional(session, region, dry_run=True):
             found.append(res_item)
             
             if not dry_run:
-                if association_id:
-                    try: ec2.disassociate_address(AssociationId=association_id)
-                    except Exception: pass
-                if alloc_id:
-                    print_status("info", f"Releasing Elastic IP: {public_ip}", region)
-                    ec2.release_address(AllocationId=alloc_id)
+                spinner = Spinner(f"Releasing Elastic IP: {public_ip}")
+                spinner.start()
+                try:
+                    if association_id:
+                        try: ec2.disassociate_address(AssociationId=association_id)
+                        except Exception: pass
+                    if alloc_id:
+                        ec2.release_address(AllocationId=alloc_id)
+                    spinner.stop()
+                    print_status("success", f"Successfully released Elastic IP: {public_ip}", region)
+                except Exception as e:
+                    spinner.stop()
+                    print_status("error", f"Failed to release Elastic IP {public_ip}: {e}", region)
     except Exception as e:
         if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
             PERMISSION_WARNINGS.add("EC2 (Elastic IP Addresses)")
@@ -394,8 +464,15 @@ def process_regional(session, region, dry_run=True):
                 found.append(res_item)
                 
                 if not dry_run:
-                    print_status("info", f"Deleting NAT Gateway: {gw_id}", region)
-                    ec2.delete_nat_gateway(NatGatewayId=gw_id)
+                    spinner = Spinner(f"Deleting NAT Gateway: {gw_id}")
+                    spinner.start()
+                    try:
+                        ec2.delete_nat_gateway(NatGatewayId=gw_id)
+                        spinner.stop()
+                        print_status("success", f"Successfully deleted NAT Gateway: {gw_id}", region)
+                    except Exception as e:
+                        spinner.stop()
+                        print_status("error", f"Failed to delete NAT Gateway {gw_id}: {e}", region)
     except Exception as e:
         if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
             PERMISSION_WARNINGS.add("EC2 (NAT Gateways)")
@@ -416,8 +493,15 @@ def process_regional(session, region, dry_run=True):
                 found.append(res_item)
                 
                 if not dry_run:
-                    print_status("info", f"Deleting VPC Endpoint: {ep_id}...", region)
-                    ec2.delete_vpc_endpoints(VpcEndpointIds=[ep_id])
+                    spinner = Spinner(f"Deleting VPC Endpoint: {ep_id}")
+                    spinner.start()
+                    try:
+                        ec2.delete_vpc_endpoints(VpcEndpointIds=[ep_id])
+                        spinner.stop()
+                        print_status("success", f"Successfully deleted VPC Endpoint: {ep_id}", region)
+                    except Exception as e:
+                        spinner.stop()
+                        print_status("error", f"Failed to delete VPC Endpoint {ep_id}: {e}", region)
     except Exception as e:
         if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
             PERMISSION_WARNINGS.add("EC2 (VPC Endpoints)")
@@ -431,8 +515,15 @@ def process_regional(session, region, dry_run=True):
             print_status("warning", f"Found Load Balancer: {lb_name}", region)
             found.append({'type': 'Load Balancer (v2)', 'id': arn, 'name': lb_name, 'region': region})
             if not dry_run:
-                print_status("info", f"Deleting Load Balancer: {lb_name}", region)
-                elbv2.delete_load_balancer(LoadBalancerArn=arn)
+                spinner = Spinner(f"Deleting Load Balancer: {lb_name}")
+                spinner.start()
+                try:
+                    elbv2.delete_load_balancer(LoadBalancerArn=arn)
+                    spinner.stop()
+                    print_status("success", f"Successfully deleted Load Balancer: {lb_name}", region)
+                except Exception as e:
+                    spinner.stop()
+                    print_status("error", f"Failed to delete Load Balancer {lb_name}: {e}", region)
     except Exception as e:
         if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
             PERMISSION_WARNINGS.add("ELB (Elastic Load Balancing)")
@@ -444,11 +535,18 @@ def process_regional(session, region, dry_run=True):
             print_status("warning", f"Found RDS Instance: {db_id}", region)
             found.append({'type': 'RDS DB Instance', 'id': db_id, 'region': region})
             if not dry_run:
-                if db.get('DeletionProtection', False):
-                    try: rds.modify_db_instance(DBInstanceIdentifier=db_id, DeletionProtection=False, ApplyImmediately=True)
-                    except Exception: pass
-                print_status("info", f"Deleting RDS DB Instance: {db_id}", region)
-                rds.delete_db_instance(DBInstanceIdentifier=db_id, SkipFinalSnapshot=True)
+                spinner = Spinner(f"Deleting RDS DB Instance: {db_id}")
+                spinner.start()
+                try:
+                    if db.get('DeletionProtection', False):
+                        try: rds.modify_db_instance(DBInstanceIdentifier=db_id, DeletionProtection=False, ApplyImmediately=True)
+                        except Exception: pass
+                    rds.delete_db_instance(DBInstanceIdentifier=db_id, SkipFinalSnapshot=True)
+                    spinner.stop()
+                    print_status("success", f"Successfully deleted RDS DB Instance: {db_id}", region)
+                except Exception as e:
+                    spinner.stop()
+                    print_status("error", f"Failed to delete RDS DB Instance {db_id}: {e}", region)
     except Exception as e:
         if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
             PERMISSION_WARNINGS.add("RDS (Relational Database Service)")
@@ -461,8 +559,15 @@ def process_regional(session, region, dry_run=True):
                 print_status("warning", f"Found RDS Cluster Snapshot: {snap_id}", region)
                 found.append({'type': 'RDS Cluster Snapshot', 'id': snap_id, 'region': region})
                 if not dry_run:
-                    print_status("info", f"Deleting RDS Cluster Snapshot: {snap_id}", region)
-                    rds.delete_db_cluster_snapshot(DBClusterSnapshotIdentifier=snap_id)
+                    spinner = Spinner(f"Deleting RDS Cluster Snapshot: {snap_id}")
+                    spinner.start()
+                    try:
+                        rds.delete_db_cluster_snapshot(DBClusterSnapshotIdentifier=snap_id)
+                        spinner.stop()
+                        print_status("success", f"Successfully deleted RDS Cluster Snapshot: {snap_id}", region)
+                    except Exception as e:
+                        spinner.stop()
+                        print_status("error", f"Failed to delete RDS Cluster Snapshot {snap_id}: {e}", region)
     except Exception as e:
         if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
             PERMISSION_WARNINGS.add("RDS (Relational Database Service)")
@@ -474,8 +579,15 @@ def process_regional(session, region, dry_run=True):
             print_status("warning", f"Found RDS Retained Automated Backup for DB: {backup['DBInstanceIdentifier']}", region)
             found.append({'type': 'RDS Retained Backup', 'id': backup_arn, 'region': region})
             if not dry_run:
-                print_status("info", f"Deleting RDS Retained Backup...", region)
-                rds.delete_db_instance_automated_backups(DbInstanceAutomatedBackupsArn=backup_arn)
+                spinner = Spinner(f"Deleting RDS Retained Backup")
+                spinner.start()
+                try:
+                    rds.delete_db_instance_automated_backups(DbInstanceAutomatedBackupsArn=backup_arn)
+                    spinner.stop()
+                    print_status("success", f"Successfully deleted RDS Retained Backup", region)
+                except Exception as e:
+                    spinner.stop()
+                    print_status("error", f"Failed to delete RDS Retained Backup: {e}", region)
     except Exception as e:
         if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
             PERMISSION_WARNINGS.add("RDS (Relational Database Service)")
@@ -486,8 +598,15 @@ def process_regional(session, region, dry_run=True):
             print_status("warning", f"Found DynamoDB Table: {table}", region)
             found.append({'type': 'DynamoDB Table', 'id': table, 'region': region})
             if not dry_run:
-                print_status("info", f"Deleting DynamoDB Table: {table}", region)
-                ddb.delete_table(TableName=table)
+                spinner = Spinner(f"Deleting DynamoDB Table: {table}")
+                spinner.start()
+                try:
+                    ddb.delete_table(TableName=table)
+                    spinner.stop()
+                    print_status("success", f"Successfully deleted DynamoDB Table: {table}", region)
+                except Exception as e:
+                    spinner.stop()
+                    print_status("error", f"Failed to delete DynamoDB Table {table}: {e}", region)
     except Exception as e:
         if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
             PERMISSION_WARNINGS.add("DynamoDB")
