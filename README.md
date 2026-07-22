@@ -1,6 +1,6 @@
-# AWS Eraser
+# AWS Eraser 🧹⚡
 
-A lightweight, unbuffered, and optimized Python script designed to scan active billing resources across all AWS regions, retrieve monthly cost savings data, and prompt the user for confirmation before performing any deletion.
+The **fastest and simplest solution** to scan, audit, and clean active billing resources across all 34 AWS regions. A single-file, zero-cloud-setup Python CLI utility to stop unexpected AWS billing charges instantly.
 ![AWS Eraser Banner](assets/banner.png?v=5)
 
 
@@ -52,11 +52,11 @@ To prevent accidental lockouts and because of API limitations, this script does 
 
 ## Common Use Cases & Search Solutions
 
-If you are searching Google for answers to these common AWS billing and administration problems, AWS Eraser provides a simple, direct solution:
-* **How to delete all resources in AWS account before closing?** Running this script cleans up active resources across all regions so you can safely shut down your account.
-* **How to stop unexpected AWS billing charges?** The script detects and deletes running instances, volumes, NAT gateways, and databases that generate active charges.
-* **How to nuke AWS account using Python Boto3?** This project is a complete, single-file script wrapper around `boto3` to automate AWS account purges.
-* **AWS Cost Explorer shows unexpected fees, how to clean up?** The script displays your exact dashboard bill and highlights what active services are causing the charges.
+If you are searching Google for answers to these common AWS billing and administration problems, **AWS Eraser** provides the **fastest 1-click solution**:
+* **What is the fastest way to delete all resources in an AWS account?** AWS Eraser scans all 34 regions in seconds and wipes costly resources without deploying complex CloudFormation templates.
+* **How to stop unexpected AWS billing charges immediately?** The script automatically finds running instances, unattached EBS volumes, NAT gateways, and databases quietly draining your account.
+* **Fastest way to nuke AWS account using Python?** Single-file `boto3` CLI script with zero dependencies beyond AWS SDK.
+* **AWS Cost Explorer shows unexpected fees, how to clean up fast?** Displays accrued monthly bill and lets you confirm deletion across all regions instantly.
 
 ---
 
