@@ -6,6 +6,18 @@ import boto3
 from botocore.exceptions import ClientError
 from botocore.config import Config
 
+# Enable ANSI escape sequences on Windows CMD
+os.system('')
+
+class Colors:
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    BOLD = '\033[1m'
+    RESET = '\033[0m'
+
 # Custom config to set a low timeout and 1 retry.
 TIMEOUT_CONFIG = Config(
     connect_timeout=2,
@@ -37,9 +49,20 @@ PRICING_ESTIMATES = {
 }
 
 def print_header(title):
-    print("\n" + "=" * 60)
+    print(f"\n{Colors.BOLD}{Colors.CYAN}" + "=" * 60)
     print(f" {title.upper()} ".center(60, "="))
-    print("=" * 60)
+    print("=" * 60 + f"{Colors.RESET}")
+
+def print_status(status_type, message, region=None):
+    region_str = f" [{region}]" if region else ""
+    if status_type == "info":
+        print(f" {Colors.BLUE}ℹ{Colors.RESET}{region_str} {message}")
+    elif status_type == "success":
+        print(f" {Colors.GREEN}✔{Colors.RESET}{region_str} {message}")
+    elif status_type == "warning":
+        print(f" {Colors.YELLOW}⚠{Colors.RESET}{region_str} {message}")
+    elif status_type == "error":
+        print(f" {Colors.RED}✖{Colors.RESET}{region_str} {message}")
 
 # Retrieve credentials either from credentials.json or direct console input
 def get_credentials():
@@ -61,7 +84,7 @@ def get_credentials():
         session_token = input("Enter AWS Session Token (Optional, press Enter to skip): ").strip()
         
         if not access_key or not secret_key:
-            print("Error: Both Access Key ID and Secret Access Key are required.")
+            print(f"{Colors.RED}Error: Both Access Key ID and Secret Access Key are required.{Colors.RESET}")
             sys.exit(1)
             
         return {
@@ -86,12 +109,12 @@ def get_all_regions(session):
         regions = [r['RegionName'] for r in ec2.describe_regions()['Regions']]
         return regions
     except Exception as e:
-        print(f"Failed to list regions: {e}")
+        print_status("error", f"Failed to list regions: {e}")
         return ['us-east-1', 'us-east-2', 'us-west-1', 'us-west-2', 'ap-south-1', 'eu-central-1', 'eu-west-1', 'eu-west-2']
 
 # CloudFront Distribution manager
 def process_cloudfront(session, dry_run=True):
-    print("Scanning CloudFront Distributions...")
+    print_status("info", "Scanning CloudFront Distributions...")
     found = []
     try:
         cf = session.client('cloudfront', config=TIMEOUT_CONFIG)
@@ -103,21 +126,21 @@ def process_cloudfront(session, dry_run=True):
             status = dist['Status']
             enabled = dist['Enabled']
             web_acl_id = dist.get('WebACLId', '')
-            print(f"  Found CloudFront Distribution: {dist_id} (Enabled: {enabled}, Status: {status}, WebACL: {web_acl_id})")
+            print_status("warning", f"Found CloudFront Distribution: {dist_id} (Enabled: {enabled}, Status: {status}, WebACL: {web_acl_id})")
             found.append({'type': 'CloudFront Distribution', 'id': dist_id, 'web_acl_id': web_acl_id})
             
             if not dry_run:
                 # Delete distribution if disabled and deployed
                 if not enabled and status == 'Deployed':
                     try:
-                        print(f"    Distribution {dist_id} is disabled and deployed. Deleting distribution...")
+                        print_status("info", f"Distribution {dist_id} is disabled and deployed. Deleting distribution...")
                         dist_details = cf.get_distribution(Id=dist_id)
                         dist_etag = dist_details['ETag']
                         cf.delete_distribution(Id=dist_id, IfMatch=dist_etag)
-                        print(f"    Successfully deleted CloudFront Distribution {dist_id}")
+                        print_status("success", f"Successfully deleted CloudFront Distribution {dist_id}")
                         continue
                     except Exception as e:
-                        print(f"    Failed to delete CloudFront Distribution {dist_id}: {e}")
+                        print_status("error", f"Failed to delete CloudFront Distribution {dist_id}: {e}")
                         
                 # Update config to disable or remove WAF if active
                 try:
@@ -127,21 +150,21 @@ def process_cloudfront(session, dry_run=True):
                     
                     changed = False
                     if config.get('WebACLId') != '':
-                        print(f"    Disassociating Web ACL from CloudFront {dist_id}...")
+                        print_status("info", f"Disassociating Web ACL from CloudFront {dist_id}...")
                         config['WebACLId'] = ''
                         changed = True
                     if config['Enabled']:
-                        print(f"    Disabling CloudFront Distribution {dist_id}...")
+                        print_status("info", f"Disabling CloudFront Distribution {dist_id}...")
                         config['Enabled'] = False
                         changed = True
                     if changed:
                         cf.update_distribution(DistributionConfig=config, Id=dist_id, IfMatch=etag)
-                        print(f"    Successfully updated CloudFront configuration.")
+                        print_status("success", f"Successfully updated CloudFront configuration.")
                 except Exception as e:
-                    print(f"    Failed to update CloudFront Distribution {dist_id}: {e}")
+                    print_status("error", f"Failed to update CloudFront Distribution {dist_id}: {e}")
     except Exception as e:
         if 'AccessDenied' not in str(e):
-            print(f"  Error scanning CloudFront: {e}")
+            print_status("error", f"Error scanning CloudFront: {e}")
     return found
 
 # WAFv2 Manager
@@ -157,7 +180,7 @@ def process_wafv2(session, region, scope, dry_run=True):
             acl_id = acl['Id']
             name = acl['Name']
             arn = acl['ARN']
-            print(f"  [{waf_region}] Found WAFv2 Web ACL: {name} (Scope: {scope})")
+            print_status("warning", f"Found WAFv2 Web ACL: {name} (Scope: {scope})", waf_region)
             found.append({'type': 'WAFv2 Web ACL', 'id': acl_id, 'name': name, 'region': waf_region, 'arn': arn, 'scope': scope})
             
             if not dry_run:
@@ -165,25 +188,24 @@ def process_wafv2(session, region, scope, dry_run=True):
                     acl_details = waf.get_web_acl(Name=name, Id=acl_id, Scope=scope)
                     lock_token = acl_details['LockToken']
                     
-                    # Delete regional associations
                     if scope == 'REGIONAL':
                         associations = waf.list_resources_for_web_acl(WebACLArn=arn).get('ResourceArns', [])
                         for res_arn in associations:
-                            print(f"    Disassociating resource {res_arn} from WAF {name}...")
+                            print_status("info", f"Disassociating resource {res_arn} from WAF {name}...", waf_region)
                             waf.disassociate_web_acl(ResourceArn=res_arn)
                             
-                    print(f"    Deleting WAFv2 Web ACL: {name}...")
+                    print_status("info", f"Deleting WAFv2 Web ACL: {name}...", waf_region)
                     waf.delete_web_acl(Name=name, Id=acl_id, Scope=scope, LockToken=lock_token)
-                    print(f"    Successfully deleted WAFv2 Web ACL: {name}")
+                    print_status("success", f"Successfully deleted WAFv2 Web ACL: {name}", waf_region)
                 except Exception as e:
-                    print(f"    Failed to delete WAFv2 Web ACL {name}: {e}")
+                    print_status("error", f"Failed to delete WAFv2 Web ACL {name}: {e}", waf_region)
     except Exception:
         pass
     return found
 
 # S3 Buckets manager
 def process_s3(session, dry_run=True):
-    print("Scanning S3 Buckets...")
+    print_status("info", "Scanning S3 Buckets...")
     found = []
     try:
         s3_client = session.client('s3', config=TIMEOUT_CONFIG)
@@ -192,28 +214,28 @@ def process_s3(session, dry_run=True):
         
         for bucket in buckets:
             name = bucket['Name']
-            print(f"  Found Bucket: {name}")
+            print_status("warning", f"Found S3 Bucket: {name}")
             found.append({'type': 'S3 Bucket', 'id': name, 'region': 'global'})
             
             if not dry_run:
-                print(f"    Deleting S3 Bucket: {name} (clearing contents first)...")
+                print_status("info", f"Deleting S3 Bucket: {name} (clearing contents first)...")
                 try:
                     s3_resource = session.resource('s3', config=TIMEOUT_CONFIG)
                     bucket_obj = s3_resource.Bucket(name)
                     bucket_obj.object_versions.delete()
                     bucket_obj.objects.all().delete()
                     s3_client.delete_bucket(Bucket=name)
-                    print(f"    Successfully deleted bucket: {name}")
+                    print_status("success", f"Successfully deleted bucket: {name}")
                 except Exception as e:
-                    print(f"    Failed to delete bucket {name}: {e}")
+                    print_status("error", f"Failed to delete bucket {name}: {e}")
     except Exception as e:
         if 'AccessDenied' not in str(e):
-            print(f"  Failed to scan S3: {e}")
+            print_status("error", f"Failed to scan S3: {e}")
     return found
 
 # Lightsail Manager
 def process_lightsail(session, dry_run=True):
-    print("Scanning Lightsail resources...")
+    print_status("info", "Scanning Lightsail resources...")
     lightsail_regions = ['us-east-1', 'us-east-2', 'us-west-2', 'eu-west-1', 'eu-west-2', 'eu-central-1', 'ap-southeast-1', 'ap-southeast-2', 'ap-northeast-1', 'ap-northeast-2', 'ap-south-1', 'ca-central-1']
     found = []
     
@@ -225,20 +247,20 @@ def process_lightsail(session, dry_run=True):
             instances = ls.get_instances().get('instances', [])
             for inst in instances:
                 name = inst['name']
-                print(f"  Found Lightsail Instance: {name} in {r}")
+                print_status("warning", f"Found Lightsail Instance: {name}", r)
                 found.append({'type': 'Lightsail Instance', 'id': name, 'region': r})
                 if not dry_run:
-                    print(f"    Deleting Lightsail Instance: {name}")
+                    print_status("info", f"Deleting Lightsail Instance: {name}", r)
                     ls.delete_instance(instanceName=name)
             
             # Databases
             dbs = ls.get_relational_databases().get('relationalDatabases', [])
             for db in dbs:
                 name = db['name']
-                print(f"  Found Lightsail Database: {name} in {r}")
+                print_status("warning", f"Found Lightsail Database: {name}", r)
                 found.append({'type': 'Lightsail Database', 'id': name, 'region': r})
                 if not dry_run:
-                    print(f"    Deleting Lightsail Database: {name}")
+                    print_status("info", f"Deleting Lightsail Database: {name}", r)
                     ls.delete_relational_database(relationalDatabaseName=name, skipFinalSnapshot=True)
         except Exception:
             pass
@@ -266,10 +288,10 @@ def process_regional(session, region, dry_run=True):
                         
         for inst in instances:
             inst_id = inst['InstanceId']
-            print(f"  [{region}] Found EC2 Instance: {inst_id}")
+            print_status("warning", f"Found EC2 Instance: {inst_id}", region)
             found.append({'type': 'EC2 Instance', 'id': inst_id, 'region': region})
             if not dry_run:
-                print(f"    Terminating EC2 Instance: {inst_id}")
+                print_status("info", f"Terminating EC2 Instance: {inst_id}", region)
                 ec2.terminate_instances(InstanceIds=[inst_id])
     except ClientError as e:
         if 'AuthFailure' in str(e) or 'UnauthorizedOperation' in str(e) or 'OptInRequired' in str(e):
@@ -283,7 +305,7 @@ def process_regional(session, region, dry_run=True):
         for vol in volumes:
             vol_id = vol['VolumeId']
             state = vol['State']
-            print(f"  [{region}] Found EBS Volume: {vol_id} ({state})")
+            print_status("warning", f"Found EBS Volume: {vol_id} ({state})", region)
             found.append({'type': 'EBS Volume', 'id': vol_id, 'region': region})
             if not dry_run:
                 if state == 'in-use':
@@ -291,7 +313,7 @@ def process_regional(session, region, dry_run=True):
                         ec2.detach_volume(VolumeId=vol_id, Force=True)
                         time.sleep(2)
                     except Exception: pass
-                print(f"    Deleting EBS Volume: {vol_id}")
+                print_status("info", f"Deleting EBS Volume: {vol_id}", region)
                 try: ec2.delete_volume(VolumeId=vol_id)
                 except Exception: pass
     except Exception: pass
@@ -303,14 +325,14 @@ def process_regional(session, region, dry_run=True):
             alloc_id = ip.get('AllocationId')
             public_ip = ip.get('PublicIp')
             association_id = ip.get('AssociationId')
-            print(f"  [{region}] Found Elastic IP: {public_ip}")
+            print_status("warning", f"Found Elastic IP: {public_ip}", region)
             found.append({'type': 'Elastic IP', 'id': public_ip, 'region': region})
             if not dry_run:
                 if association_id:
                     try: ec2.disassociate_address(AssociationId=association_id)
                     except Exception: pass
                 if alloc_id:
-                    print(f"    Releasing Elastic IP: {public_ip}")
+                    print_status("info", f"Releasing Elastic IP: {public_ip}", region)
                     ec2.release_address(AllocationId=alloc_id)
     except Exception: pass
 
@@ -320,10 +342,10 @@ def process_regional(session, region, dry_run=True):
         for gw in nat_gws:
             if gw['State'] not in ['deleted', 'deleting']:
                 gw_id = gw['NatGatewayId']
-                print(f"  [{region}] Found NAT Gateway: {gw_id}")
+                print_status("warning", f"Found NAT Gateway: {gw_id}", region)
                 found.append({'type': 'NAT Gateway', 'id': gw_id, 'region': region})
                 if not dry_run:
-                    print(f"    Deleting NAT Gateway: {gw_id}")
+                    print_status("info", f"Deleting NAT Gateway: {gw_id}", region)
                     ec2.delete_nat_gateway(NatGatewayId=gw_id)
     except Exception: pass
 
@@ -333,22 +355,22 @@ def process_regional(session, region, dry_run=True):
         for ep in endpoints:
             if ep['State'] != 'deleted':
                 ep_id = ep['VpcEndpointId']
-                print(f"  [{region}] Found VPC Endpoint: {ep_id}")
+                print_status("warning", f"Found VPC Endpoint: {ep_id}", region)
                 found.append({'type': 'VPC Endpoint', 'id': ep_id, 'region': region})
                 if not dry_run:
-                    print(f"    Deleting VPC Endpoint: {ep_id}...")
+                    print_status("info", f"Deleting VPC Endpoint: {ep_id}...", region)
                     ec2.delete_vpc_endpoints(VpcEndpointIds=[ep_id])
     except Exception: pass
 
-    # 6. Load Balancers (ALB/NLB)
+    # 6. Load Balancers
     try:
         elbv2 = session.client('elbv2', region_name=region, config=TIMEOUT_CONFIG)
         for lb in elbv2.describe_load_balancers().get('LoadBalancers', []):
             arn = lb['LoadBalancerArn']
-            print(f"  [{region}] Found Load Balancer: {lb['LoadBalancerName']}")
+            print_status("warning", f"Found Load Balancer: {lb['LoadBalancerName']}", region)
             found.append({'type': 'Load Balancer (v2)', 'id': arn, 'region': region})
             if not dry_run:
-                print(f"    Deleting Load Balancer: {lb['LoadBalancerName']}")
+                print_status("info", f"Deleting Load Balancer: {lb['LoadBalancerName']}", region)
                 elbv2.delete_load_balancer(LoadBalancerArn=arn)
     except Exception: pass
 
@@ -356,13 +378,13 @@ def process_regional(session, region, dry_run=True):
     try:
         for db in rds.describe_db_instances().get('DBInstances', []):
             db_id = db['DBInstanceIdentifier']
-            print(f"  [{region}] Found RDS Instance: {db_id}")
+            print_status("warning", f"Found RDS Instance: {db_id}", region)
             found.append({'type': 'RDS DB Instance', 'id': db_id, 'region': region})
             if not dry_run:
                 if db.get('DeletionProtection', False):
                     try: rds.modify_db_instance(DBInstanceIdentifier=db_id, DeletionProtection=False, ApplyImmediately=True)
                     except Exception: pass
-                print(f"    Deleting RDS DB Instance: {db_id}")
+                print_status("info", f"Deleting RDS DB Instance: {db_id}", region)
                 rds.delete_db_instance(DBInstanceIdentifier=db_id, SkipFinalSnapshot=True)
     except Exception: pass
 
@@ -371,10 +393,10 @@ def process_regional(session, region, dry_run=True):
         for snap in rds.describe_db_cluster_snapshots().get('DBClusterSnapshots', []):
             if snap['SnapshotType'] == 'manual':
                 snap_id = snap['DBClusterSnapshotIdentifier']
-                print(f"  [{region}] Found RDS Cluster Snapshot: {snap_id}")
+                print_status("warning", f"Found RDS Cluster Snapshot: {snap_id}", region)
                 found.append({'type': 'RDS Cluster Snapshot', 'id': snap_id, 'region': region})
                 if not dry_run:
-                    print(f"    Deleting RDS Cluster Snapshot: {snap_id}")
+                    print_status("info", f"Deleting RDS Cluster Snapshot: {snap_id}", region)
                     rds.delete_db_cluster_snapshot(DBClusterSnapshotIdentifier=snap_id)
     except Exception: pass
 
@@ -382,20 +404,20 @@ def process_regional(session, region, dry_run=True):
     try:
         for backup in rds.describe_db_instance_automated_backups().get('DBInstanceAutomatedBackups', []):
             backup_arn = backup['DBInstanceAutomatedBackupsArn']
-            print(f"  [{region}] Found RDS Retained Automated Backup for DB: {backup['DBInstanceIdentifier']}")
+            print_status("warning", f"Found RDS Retained Automated Backup for DB: {backup['DBInstanceIdentifier']}", region)
             found.append({'type': 'RDS Retained Backup', 'id': backup_arn, 'region': region})
             if not dry_run:
-                print(f"    Deleting RDS Retained Backup...")
+                print_status("info", f"Deleting RDS Retained Backup...", region)
                 rds.delete_db_instance_automated_backups(DbInstanceAutomatedBackupsArn=backup_arn)
     except Exception: pass
 
     # 10. DynamoDB Tables
     try:
         for table in ddb.list_tables().get('TableNames', []):
-            print(f"  [{region}] Found DynamoDB Table: {table}")
+            print_status("warning", f"Found DynamoDB Table: {table}", region)
             found.append({'type': 'DynamoDB Table', 'id': table, 'region': region})
             if not dry_run:
-                print(f"    Deleting DynamoDB Table: {table}")
+                print_status("info", f"Deleting DynamoDB Table: {table}", region)
                 ddb.delete_table(TableName=table)
     except Exception: pass
 
@@ -418,7 +440,7 @@ def run_nuke(session, regions, all_resources):
     
     # 5. Regional Services
     for index, r in enumerate(regions):
-        print(f"[{index + 1}/{len(regions)}] Nuking region: {r}...")
+        print_status("info", f"[{index + 1}/{len(regions)}] Nuking region: {r}...")
         process_wafv2(session, r, 'REGIONAL', dry_run=False)
         process_regional(session, r, dry_run=False)
 
@@ -432,16 +454,16 @@ def main():
     try:
         sts = session.client('sts', config=TIMEOUT_CONFIG)
         identity = sts.get_caller_identity()
-        print(f"Successfully authenticated as:")
+        print(f"{Colors.GREEN}Successfully authenticated as:{Colors.RESET}")
         print(f"  Account ID: {identity['Account']}")
         print(f"  User ARN: {identity['Arn']}")
     except Exception as e:
-        print(f"Authentication failed: {e}")
+        print_status("error", f"Authentication failed: {e}")
         sys.exit(1)
         
     print("\nRetrieving AWS regions...")
     regions = get_all_regions(session)
-    print(f"Found {len(regions)} regions to scan.")
+    print_status("info", f"Found {len(regions)} regions to scan.")
     
     # Run Dry-Run scan first
     all_resources = []
@@ -454,7 +476,7 @@ def main():
     
     print_header("Scanning Regional Services")
     for index, r in enumerate(regions):
-        print(f"[{index + 1}/{len(regions)}] Scanning region: {r}...")
+        print_status("info", f"[{index + 1}/{len(regions)}] Scanning region: {r}...")
         res_waf = process_wafv2(session, r, 'REGIONAL', dry_run=True)
         all_resources.extend(res_waf)
         res_reg = process_regional(session, r, dry_run=True)
@@ -463,11 +485,11 @@ def main():
     # Summary of findings
     print_header("Scan Summary")
     if not all_resources:
-        print("No active billing resources found in this AWS account.")
+        print(f"{Colors.GREEN}No active billing resources found in this AWS account.{Colors.RESET}")
         return
         
     total_savings = 0.0
-    print(f"Total resources found: {len(all_resources)}")
+    print(f"Total resources found: {Colors.BOLD}{len(all_resources)}{Colors.RESET}")
     print("\nSummary List with Cost Estimates:")
     for item in all_resources:
         name_str = f" ({item['name']})" if 'name' in item else ""
@@ -478,25 +500,25 @@ def main():
         cost_str = f"${cost_baseline:.2f}/mo baseline" if cost_baseline > 0 else "usage-dependent / free"
         total_savings += cost_baseline
         
-        print(f"  - {item['type']}: {item['id']}{name_str}{region_str} [{cost_str}]")
+        print(f"  - {Colors.YELLOW}{item['type']}{Colors.RESET}: {item['id']}{name_str}{region_str} [{Colors.CYAN}{cost_str}{Colors.RESET}]")
         
     print("-" * 60)
-    print(f"ESTIMATED MONTHLY SAVINGS BY NUKING: ${total_savings:.2f} / month")
+    print(f"{Colors.BOLD}{Colors.GREEN}ESTIMATED MONTHLY SAVINGS BY NUKING: ${total_savings:.2f} / month{Colors.RESET}")
     print("=" * 60)
     
     # Interactive confirmation prompt
     try:
-        confirm = input("\n⚠️  Are you absolutely sure you want to delete all the above resources? (Type 'yes' to nuke): ").strip().lower()
+        confirm = input(f"\n⚠️  {Colors.BOLD}{Colors.RED}Are you absolutely sure you want to delete all the above resources? (Type 'yes' to nuke): {Colors.RESET}").strip().lower()
         if confirm == 'yes':
             run_nuke(session, regions, all_resources)
             print_header("Nuke Process Complete")
-            print("NUKE PROCESS FINISHED. Some deletions are asynchronous and take time.")
+            print(f"{Colors.GREEN}✔ NUKE PROCESS FINISHED. Some deletions are asynchronous and take time.{Colors.RESET}")
             print("Please re-run the script to verify all resources are successfully deleted.")
             print("=" * 60)
         else:
-            print("\nNuke cancelled. No resources were deleted.")
+            print(f"\n{Colors.YELLOW}Nuke cancelled. No resources were deleted.{Colors.RESET}")
     except KeyboardInterrupt:
-        print("\nNuke cancelled.")
+        print(f"\n{Colors.YELLOW}Nuke cancelled.{Colors.RESET}")
         sys.exit(0)
 
 if __name__ == '__main__':
