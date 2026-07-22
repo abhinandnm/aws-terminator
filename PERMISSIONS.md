@@ -2,177 +2,29 @@
 
 If you encounter insufficient permission warnings while running `aws-terminator`, it means your current IAM User or Role lacks the API authorizations required to scan or delete resources under certain services.
 
-To resolve these errors, you can either attach the AWS-managed policy **`AdministratorAccess`** to your IAM User/Role (recommended for complete cleanup), or attach a custom policy with the specific permission actions detailed below.
+To resolve these warnings, sign in to the **AWS IAM Console**, select your User or Role, click **Add Permissions**, and attach the corresponding pre-made AWS managed policies below.
 
 ---
 
-## 1. AWS Billing / Cost Explorer
-If the script fails to retrieve the monthly accrued billing dashboard, ensure your IAM role includes the following actions, and that **IAM Billing Access** is enabled in your AWS Root Account:
+## Recommended Managed Policies
 
-* **AWS Console Page:** [AWS Billing Settings](https://console.aws.amazon.com/billing/home?#/account)
-* **Required Actions:**
-  ```json
-  {
-    "Version": "2012-10-17",
-    "Statement": [
-      {
-        "Effect": "Allow",
-        "Action": [
-          "ce:GetCostAndUsage"
-        ],
-        "Resource": "*"
-      }
-    ]
-  }
-  ```
-* **AWS Managed Policy Alternative:** Attach the **`AWSBillingReadOnlyAccess`** policy.
+| Service | Insufficient Permission Error | AWS Managed Policy Name to Attach |
+| :--- | :--- | :--- |
+| **All Services** | Any scanning/deletion errors | **`AdministratorAccess`** *(Recommended for full cleanup)* |
+| **Cost Explorer** | Access Denied / Cost Explorer disabled | **`AWSBillingReadOnlyAccess`** |
+| **CloudFront** | CloudFront skipped | **`CloudFrontFullAccess`** |
+| **DynamoDB** | DynamoDB skipped | **`AmazonDynamoDBFullAccess`** |
+| **Lightsail** | Lightsail skipped | **`AmazonLightsailFullAccess`** |
+| **RDS** | RDS skipped | **`AmazonRDSFullAccess`** |
+| **S3** | S3 skipped | **`AmazonS3FullAccess`** |
+| **WAFv2** | WAFv2 skipped | **`AWSWAFFullAccess`** |
 
 ---
 
-## 2. CloudFront (Content Delivery Network)
-Lacking permissions for CloudFront skips scanning and deleting distribution networks.
+## How to attach policies in the AWS Console
 
-* **Required Actions:**
-  ```json
-  {
-    "Version": "2012-10-17",
-    "Statement": [
-      {
-        "Effect": "Allow",
-        "Action": [
-          "cloudfront:ListDistributions",
-          "cloudfront:GetDistribution",
-          "cloudfront:GetDistributionConfig",
-          "cloudfront:UpdateDistribution",
-          "cloudfront:DeleteDistribution"
-        ],
-        "Resource": "*"
-      }
-    ]
-  }
-  ```
-
----
-
-## 3. DynamoDB (NoSQL Database Service)
-Lacking permissions for DynamoDB skips list and delete routines for tables.
-
-* **Required Actions:**
-  ```json
-  {
-    "Version": "2012-10-17",
-    "Statement": [
-      {
-        "Effect": "Allow",
-        "Action": [
-          "dynamodb:ListTables",
-          "dynamodb:DescribeTable",
-          "dynamodb:DeleteTable"
-        ],
-        "Resource": "*"
-      }
-    ]
-  }
-  ```
-
----
-
-## 4. Lightsail (Virtual Private Servers)
-Lacking permissions for Lightsail skips scanning or terminating VPS instances and relational databases.
-
-* **Required Actions:**
-  ```json
-  {
-    "Version": "2012-10-17",
-    "Statement": [
-      {
-        "Effect": "Allow",
-        "Action": [
-          "lightsail:GetInstances",
-          "lightsail:DeleteInstance",
-          "lightsail:GetRelationalDatabases",
-          "lightsail:DeleteRelationalDatabase"
-        ],
-        "Resource": "*"
-      }
-    ]
-  }
-  ```
-
----
-
-## 5. RDS (Relational Database Service)
-Lacking permissions for RDS skips listing and deleting DB instances, automated backups, and cluster snapshots.
-
-* **Required Actions:**
-  ```json
-  {
-    "Version": "2012-10-17",
-    "Statement": [
-      {
-        "Effect": "Allow",
-        "Action": [
-          "rds:DescribeDBInstances",
-          "rds:ModifyDBInstance",
-          "rds:DeleteDBInstance",
-          "rds:DescribeDBClusterSnapshots",
-          "rds:DeleteDBClusterSnapshot",
-          "rds:DescribeDBInstanceAutomatedBackups",
-          "rds:DeleteDBInstanceAutomatedBackups"
-        ],
-        "Resource": "*"
-      }
-    ]
-  }
-  ```
-
----
-
-## 6. S3 (Simple Storage Service)
-Lacking permissions for S3 skips empty bucket operations, clearing object versions, and deleting buckets.
-
-* **Required Actions:**
-  ```json
-  {
-    "Version": "2012-10-17",
-    "Statement": [
-      {
-        "Effect": "Allow",
-        "Action": [
-          "s3:ListAllMyBuckets",
-          "s3:ListBucket",
-          "s3:ListBucketVersions",
-          "s3:DeleteObject",
-          "s3:DeleteObjectVersion",
-          "s3:DeleteBucket"
-        ],
-        "Resource": "*"
-      }
-    ]
-  }
-  ```
-
----
-
-## 7. WAFv2 (Web Application Firewall)
-Lacking permissions for WAFv2 skips scanning, disassociating resources (like ALBs/CloudFront), or deleting Web ACLs.
-
-* **Required Actions:**
-  ```json
-  {
-    "Version": "2012-10-17",
-    "Statement": [
-      {
-        "Effect": "Allow",
-        "Action": [
-          "wafv2:ListWebACLs",
-          "wafv2:GetWebACL",
-          "wafv2:DeleteWebACL",
-          "wafv2:ListResourcesForWebACL",
-          "wafv2:DisassociateWebACL"
-        ],
-        "Resource": "*"
-      }
-    ]
-  }
-  ```
+1. Open the [AWS IAM Console](https://console.aws.amazon.com/iam/home?#/users).
+2. Click on the **User** or **Role** that corresponds to the AWS credentials you configured.
+3. Under the **Permissions** tab, click **Add permissions** -> **Attach policies**.
+4. Search for the policy name from the table above (e.g. `AmazonS3FullAccess`).
+5. Select the checkbox next to the policy and click **Add permissions** at the bottom.
