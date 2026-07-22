@@ -804,8 +804,8 @@ def main():
         for service in sorted(PERMISSION_WARNINGS):
             print(f"     - {service}")
         print(f"\n {Colors.BLUE}[i]{Colors.RESET} Note: Active resources under these services could not be scanned")
-        print("     or deleted. If you want a complete cleanup, ensure your IAM user has")
-        print("     appropriate policies (e.g. 'AdministratorAccess') attached in the AWS console.")
+        print("     or deleted. To resolve these errors, please refer to the detailed guide in:")
+        print(f"     {Colors.CYAN}PERMISSIONS.md{Colors.RESET} in your project directory.")
         print("=" * 60)
 
     if not all_resources:
