@@ -67,8 +67,8 @@ If you are searching Google for answers to these common AWS billing and administ
 Clone this repository and install the official AWS SDK (boto3):
 
 ```bash
-git clone https://github.com/abhinandnm/aws-terminator.git
-cd aws-terminator
+git clone https://github.com/abhinandnm/aws-eraser.git
+cd aws-eraser
 pip install -r requirements.txt
 ```
 
