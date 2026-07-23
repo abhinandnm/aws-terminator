@@ -185,7 +185,9 @@ def get_session(creds):
 def get_all_regions(session):
     try:
         ec2 = session.client('ec2', region_name='us-east-1', config=TIMEOUT_CONFIG)
-        regions = [r['RegionName'] for r in ec2.describe_regions()['Regions']]
+        # Fetch all regions including opt-in regions that are enabled for this account
+        response = ec2.describe_regions(AllRegions=True)
+        regions = [r['RegionName'] for r in response['Regions'] if r.get('OptInStatus') != 'not-opted-in']
         return regions
     except Exception as e:
         print_status("error", f"Failed to list regions: {e}")
