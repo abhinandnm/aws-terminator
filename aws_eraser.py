@@ -711,26 +711,221 @@ def print_billing_dashboard_costs(session):
         # Return False and the exception details
         return False, str(e)
 
+def parse_resource_selection(user_input, total_count):
+    cleaned = user_input.strip().lower()
+    if not cleaned or cleaned == 'cancel':
+        return None
+    if cleaned == 'all':
+        return list(range(total_count))
+        
+    selected_indices = set()
+    parts = cleaned.split(',')
+    
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if '-' in part:
+            range_parts = part.split('-')
+            if len(range_parts) != 2:
+                raise ValueError(f"Invalid range format: '{part}'")
+            try:
+                start = int(range_parts[0].strip())
+                end = int(range_parts[1].strip())
+            except ValueError:
+                raise ValueError(f"Non-numeric values in range: '{part}'")
+                
+            if start > end:
+                raise ValueError(f"Start index cannot be greater than end index in range: '{part}'")
+            if start < 1 or end > total_count:
+                raise ValueError(f"Range {start}-{end} out of bounds (1-{total_count})")
+                
+            for i in range(start, end + 1):
+                selected_indices.add(i - 1)
+        else:
+            try:
+                val = int(part)
+            except ValueError:
+                raise ValueError(f"Invalid number or format: '{part}'")
+            if val < 1 or val > total_count:
+                raise ValueError(f"Resource index {val} is out of bounds (1-{total_count})")
+            selected_indices.add(val - 1)
+            
+    return sorted(list(selected_indices))
+
+def delete_single_resource(session, item):
+    res_type = item.get('type')
+    res_id = item.get('id')
+    region = item.get('region', 'us-east-1')
+    name = item.get('name', '')
+    name_str = f" ({name})" if name else ""
+
+    spinner = Spinner(f"Deleting {res_type}: {res_id}{name_str}")
+    spinner.start()
+
+    try:
+        if res_type == 'CloudFront Distribution':
+            cf = session.client('cloudfront', config=TIMEOUT_CONFIG)
+            dist_details = cf.get_distribution(Id=res_id)
+            etag = dist_details['ETag']
+            config = dist_details['Distribution']['DistributionConfig']
+            status = dist_details['Distribution']['Status']
+            enabled = config['Enabled']
+
+            if not enabled and status == 'Deployed':
+                cf.delete_distribution(Id=res_id, IfMatch=etag)
+                spinner.stop()
+                print_status("success", f"Successfully deleted CloudFront Distribution {res_id}")
+            else:
+                changed = False
+                if config.get('WebACLId') != '':
+                    config['WebACLId'] = ''
+                    changed = True
+                if config['Enabled']:
+                    config['Enabled'] = False
+                    changed = True
+                if changed:
+                    cf.update_distribution(DistributionConfig=config, Id=res_id, IfMatch=etag)
+                    spinner.stop()
+                    print_status("success", f"Disabled CloudFront Distribution {res_id}. (Note: Distribution must be deployed before full deletion)")
+                else:
+                    spinner.stop()
+                    print_status("info", f"CloudFront Distribution {res_id} is disabling. Please re-run later to complete deletion.")
+
+        elif res_type == 'WAFv2 Web ACL':
+            waf_region = 'us-east-1' if item.get('scope') == 'CLOUDFRONT' else region
+            waf = session.client('wafv2', region_name=waf_region, config=TIMEOUT_CONFIG)
+            acl_details = waf.get_web_acl(Name=item['name'], Id=res_id, Scope=item['scope'])
+            lock_token = acl_details['LockToken']
+            if item.get('scope') == 'REGIONAL':
+                try:
+                    associations = waf.list_resources_for_web_acl(WebACLArn=item['arn']).get('ResourceArns', [])
+                    for res_arn in associations:
+                        waf.disassociate_web_acl(ResourceArn=res_arn)
+                except Exception:
+                    pass
+            waf.delete_web_acl(Name=item['name'], Id=res_id, Scope=item['scope'], LockToken=lock_token)
+            spinner.stop()
+            print_status("success", f"Successfully deleted WAFv2 Web ACL: {item['name']}", waf_region)
+
+        elif res_type == 'S3 Bucket':
+            s3_client = session.client('s3', config=TIMEOUT_CONFIG)
+            s3_resource = session.resource('s3', config=TIMEOUT_CONFIG)
+            bucket_obj = s3_resource.Bucket(res_id)
+            bucket_obj.object_versions.delete()
+            bucket_obj.objects.all().delete()
+            s3_client.delete_bucket(Bucket=res_id)
+            spinner.stop()
+            print_status("success", f"Successfully deleted S3 Bucket: {res_id}")
+
+        elif res_type == 'Lightsail Instance':
+            ls = session.client('lightsail', region_name=region, config=TIMEOUT_CONFIG)
+            ls.delete_instance(instanceName=res_id)
+            spinner.stop()
+            print_status("success", f"Successfully deleted Lightsail Instance: {res_id}", region)
+
+        elif res_type == 'Lightsail Database':
+            ls = session.client('lightsail', region_name=region, config=TIMEOUT_CONFIG)
+            ls.delete_relational_database(relationalDatabaseName=res_id, skipFinalSnapshot=True)
+            spinner.stop()
+            print_status("success", f"Successfully deleted Lightsail Database: {res_id}", region)
+
+        elif res_type == 'EC2 Instance':
+            ec2 = session.client('ec2', region_name=region, config=TIMEOUT_CONFIG)
+            ec2.terminate_instances(InstanceIds=[res_id])
+            spinner.stop()
+            print_status("success", f"Successfully terminated EC2 Instance: {res_id}", region)
+
+        elif res_type == 'EBS Volume':
+            ec2 = session.client('ec2', region_name=region, config=TIMEOUT_CONFIG)
+            try:
+                vol_info = ec2.describe_volumes(VolumeIds=[res_id]).get('Volumes', [])
+                if vol_info and vol_info[0]['State'] == 'in-use':
+                    ec2.detach_volume(VolumeId=res_id, Force=True)
+                    time.sleep(2)
+            except Exception:
+                pass
+            ec2.delete_volume(VolumeId=res_id)
+            spinner.stop()
+            print_status("success", f"Successfully deleted EBS Volume: {res_id}", region)
+
+        elif res_type == 'Elastic IP':
+            ec2 = session.client('ec2', region_name=region, config=TIMEOUT_CONFIG)
+            addresses = ec2.describe_addresses(PublicIps=[res_id]).get('Addresses', [])
+            if addresses:
+                addr = addresses[0]
+                if addr.get('AssociationId'):
+                    try:
+                        ec2.disassociate_address(AssociationId=addr['AssociationId'])
+                    except Exception:
+                        pass
+                if addr.get('AllocationId'):
+                    ec2.release_address(AllocationId=addr['AllocationId'])
+            spinner.stop()
+            print_status("success", f"Successfully released Elastic IP: {res_id}", region)
+
+        elif res_type == 'NAT Gateway':
+            ec2 = session.client('ec2', region_name=region, config=TIMEOUT_CONFIG)
+            ec2.delete_nat_gateway(NatGatewayId=res_id)
+            spinner.stop()
+            print_status("success", f"Successfully deleted NAT Gateway: {res_id}", region)
+
+        elif res_type == 'VPC Endpoint':
+            ec2 = session.client('ec2', region_name=region, config=TIMEOUT_CONFIG)
+            ec2.delete_vpc_endpoints(VpcEndpointIds=[res_id])
+            spinner.stop()
+            print_status("success", f"Successfully deleted VPC Endpoint: {res_id}", region)
+
+        elif res_type == 'Load Balancer (v2)':
+            elbv2 = session.client('elbv2', region_name=region, config=TIMEOUT_CONFIG)
+            elbv2.delete_load_balancer(LoadBalancerArn=res_id)
+            spinner.stop()
+            print_status("success", f"Successfully deleted Load Balancer: {name or res_id}", region)
+
+        elif res_type == 'RDS DB Instance':
+            rds = session.client('rds', region_name=region, config=TIMEOUT_CONFIG)
+            try:
+                rds.modify_db_instance(DBInstanceIdentifier=res_id, DeletionProtection=False, ApplyImmediately=True)
+            except Exception:
+                pass
+            rds.delete_db_instance(DBInstanceIdentifier=res_id, SkipFinalSnapshot=True)
+            spinner.stop()
+            print_status("success", f"Successfully deleted RDS DB Instance: {res_id}", region)
+
+        elif res_type == 'RDS Cluster Snapshot':
+            rds = session.client('rds', region_name=region, config=TIMEOUT_CONFIG)
+            rds.delete_db_cluster_snapshot(DBClusterSnapshotIdentifier=res_id)
+            spinner.stop()
+            print_status("success", f"Successfully deleted RDS Cluster Snapshot: {res_id}", region)
+
+        elif res_type == 'RDS Retained Backup':
+            rds = session.client('rds', region_name=region, config=TIMEOUT_CONFIG)
+            rds.delete_db_instance_automated_backups(DbInstanceAutomatedBackupsArn=res_id)
+            spinner.stop()
+            print_status("success", f"Successfully deleted RDS Retained Backup", region)
+
+        elif res_type == 'DynamoDB Table':
+            ddb = session.client('dynamodb', region_name=region, config=TIMEOUT_CONFIG)
+            ddb.delete_table(TableName=res_id)
+            spinner.stop()
+            print_status("success", f"Successfully deleted DynamoDB Table: {res_id}", region)
+
+        else:
+            spinner.stop()
+            print_status("warning", f"Unknown resource type '{res_type}' for {res_id}")
+
+    except Exception as e:
+        spinner.stop()
+        print_status("error", f"Failed to delete {res_type} {res_id}: {e}", region)
+
+def delete_selected_resources(session, items_to_delete):
+    print_header("Executing Resource Deletion")
+    for idx, item in enumerate(items_to_delete, 1):
+        print(f"\n{Colors.BOLD}[{idx}/{len(items_to_delete)}]{Colors.RESET}")
+        delete_single_resource(session, item)
+
 def run_nuke(session, regions, all_resources):
-    print_header("Executing Nuke Deletion")
-    
-    # 1. CloudFront Distributions
-    process_cloudfront(session, dry_run=False)
-    
-    # 2. Global / CloudFront WAFv2
-    process_wafv2(session, 'us-east-1', 'CLOUDFRONT', dry_run=False)
-    
-    # 3. S3 Buckets
-    process_s3(session, dry_run=False)
-    
-    # 4. Lightsail
-    process_lightsail(session, dry_run=False)
-    
-    # 5. Regional Services
-    for index, r in enumerate(regions):
-        print_status("info", f"[{index + 1}/{len(regions)}] Nuking region: {r}...")
-        process_wafv2(session, r, 'REGIONAL', dry_run=False)
-        process_regional(session, r, dry_run=False)
+    delete_selected_resources(session, all_resources)
 
 def main():
     print_banner()
@@ -803,10 +998,10 @@ def main():
     else:
         print(f"Total resources found: {Colors.BOLD}{len(all_resources)}{Colors.RESET}")
         print("\nSummary List:")
-        for item in all_resources:
+        for index, item in enumerate(all_resources, 1):
             name_str = f" ({item['name']})" if 'name' in item else ""
             region_str = f" in region {item['region']}" if 'region' in item else " (global)"
-            print(f"  - {Colors.YELLOW}{item['type']}{Colors.RESET}: {item['id']}{name_str}{region_str}")
+            print(f"  [{Colors.CYAN}{index}{Colors.RESET}] {Colors.YELLOW}{item['type']}{Colors.RESET}: {item['id']}{name_str}{region_str}")
         
     print("=" * 60)
 
@@ -824,19 +1019,71 @@ def main():
     if not all_resources:
         return
     
-    # Interactive confirmation prompt
+    # Interactive Post-Scan Deletion Menu
+    print_header("Deletion Options")
+    print("  1. Nuke ALL resources (Delete every resource listed above)")
+    print("  2. Select specific resources to delete manually")
+    print("  3. Cancel and exit (No resources will be deleted)")
+
     try:
-        confirm = input(f"\n[WARNING] {Colors.BOLD}{Colors.RED}Are you absolutely sure you want to delete all the above resources? (Type 'yes' to nuke): {Colors.RESET}").strip().lower()
-        if confirm == 'yes':
-            run_nuke(session, regions, all_resources)
-            print_header("Nuke Process Complete")
-            print(f"{Colors.GREEN}[OK] NUKE PROCESS FINISHED. Some deletions are asynchronous and take time.{Colors.RESET}")
-            print("Please re-run the script to verify all resources are successfully deleted.")
-            print("=" * 60)
+        choice = input(f"\n{Colors.BOLD}{Colors.CYAN}Select an option (1-3): {Colors.RESET}").strip()
+        
+        if choice == '1':
+            print(f"\n{Colors.BOLD}{Colors.RED}[WARNING] You have selected to NUKE ALL {len(all_resources)} resources!{Colors.RESET}")
+            confirm = input(f"{Colors.YELLOW}Are you absolutely sure? (Type 'yes' to nuke all): {Colors.RESET}").strip().lower()
+            if confirm == 'yes':
+                delete_selected_resources(session, all_resources)
+                print_header("Nuke Process Complete")
+                print(f"{Colors.GREEN}[OK] NUKE PROCESS FINISHED. Some deletions are asynchronous and take time.{Colors.RESET}")
+                print("Please re-run the script to verify all resources are successfully deleted.")
+                print("=" * 60)
+            else:
+                print(f"\n{Colors.YELLOW}Nuke cancelled. No resources were deleted.{Colors.RESET}")
+
+        elif choice == '2':
+            print_header("Manual Resource Selection")
+            for idx, item in enumerate(all_resources, 1):
+                name_str = f" ({item['name']})" if 'name' in item else ""
+                region_str = f" in region {item['region']}" if 'region' in item else " (global)"
+                print(f"  [{Colors.CYAN}{idx}{Colors.RESET}] {Colors.YELLOW}{item['type']}{Colors.RESET}: {item['id']}{name_str}{region_str}")
+
+            print(f"\n{Colors.CYAN}Enter resource numbers to delete (e.g., '1, 3, 5-8', 'all', or 'cancel'):{Colors.RESET}")
+            while True:
+                sel_input = input(f"{Colors.BOLD}> {Colors.RESET}").strip()
+                if not sel_input or sel_input.lower() == 'cancel':
+                    print(f"\n{Colors.YELLOW}Manual selection cancelled. No resources deleted.{Colors.RESET}")
+                    return
+                try:
+                    selected_indices = parse_resource_selection(sel_input, len(all_resources))
+                    if selected_indices is None:
+                        print(f"\n{Colors.YELLOW}Manual selection cancelled. No resources deleted.{Colors.RESET}")
+                        return
+                    break
+                except ValueError as ve:
+                    print(f"  {Colors.RED}[Error] {ve}. Please try again.{Colors.RESET}")
+
+            selected_items = [all_resources[i] for i in selected_indices]
+            print_header(f"Confirm Deletion ({len(selected_items)} Selected Item{'s' if len(selected_items) > 1 else ''})")
+            for item in selected_items:
+                name_str = f" ({item['name']})" if 'name' in item else ""
+                region_str = f" in region {item['region']}" if 'region' in item else " (global)"
+                print(f"  - {Colors.YELLOW}{item['type']}{Colors.RESET}: {item['id']}{name_str}{region_str}")
+
+            confirm = input(f"\n{Colors.BOLD}{Colors.RED}Are you sure you want to delete these {len(selected_items)} resource(s)? (Type 'yes' to proceed): {Colors.RESET}").strip().lower()
+            if confirm == 'yes':
+                delete_selected_resources(session, selected_items)
+                print_header("Deletion Process Complete")
+                print(f"{Colors.GREEN}[OK] DELETION PROCESS FINISHED. Some deletions are asynchronous and take time.{Colors.RESET}")
+                print("Please re-run the script to verify resources are successfully deleted.")
+                print("=" * 60)
+            else:
+                print(f"\n{Colors.YELLOW}Deletion cancelled. No resources were deleted.{Colors.RESET}")
+
         else:
-            print(f"\n{Colors.YELLOW}Nuke cancelled. No resources were deleted.{Colors.RESET}")
+            print(f"\n{Colors.YELLOW}Operation cancelled. No resources were deleted.{Colors.RESET}")
+
     except KeyboardInterrupt:
-        print(f"\n{Colors.YELLOW}Nuke cancelled.{Colors.RESET}")
+        print(f"\n{Colors.YELLOW}Operation cancelled.{Colors.RESET}")
         sys.exit(0)
 
 if __name__ == '__main__':
