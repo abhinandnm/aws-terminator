@@ -855,7 +855,52 @@ def delete_single_resource(session, item):
                 spinner.stop()
                 err_msg = str(ce)
                 if 'VolumeInUse' in err_msg:
-                    print_status("info", f"EBS Volume {res_id} is attached to a terminating instance and will be automatically deleted by AWS.", region)
+                    print_status("warning", f"EBS Volume {res_id} is currently attached to an active/terminating EC2 instance.", region)
+                    print(f"     {Colors.CYAN}[i] AWS usually auto-deletes root volumes when EC2 instance finishes terminating.{Colors.RESET}")
+                    
+                    # Extract attached instance ID if present
+                    inst_id = None
+                    try:
+                        vol_details = ec2.describe_volumes(VolumeIds=[res_id]).get('Volumes', [])
+                        if vol_details and vol_details[0].get('Attachments'):
+                            inst_id = vol_details[0]['Attachments'][0].get('InstanceId')
+                    except Exception:
+                        pass
+
+                    try:
+                        user_wait = input(f"\n{Colors.YELLOW}Would you like to wait for EC2 termination and delete volume {res_id} manually now? (yes/no): {Colors.RESET}").strip().lower()
+                        if user_wait == 'yes':
+                            wait_msg = f"Waiting for attached EC2 instance ({inst_id}) to terminate..." if inst_id else f"Waiting for volume {res_id} to disassociate..."
+                            wait_spinner = Spinner(wait_msg)
+                            wait_spinner.start()
+
+                            deleted = False
+                            # Poll up to 60 seconds (12 iterations * 5 seconds)
+                            for _ in range(12):
+                                time.sleep(5)
+                                try:
+                                    ec2.delete_volume(VolumeId=res_id)
+                                    deleted = True
+                                    break
+                                except ClientError as poll_ce:
+                                    if 'InvalidVolume.NotFound' in str(poll_ce):
+                                        deleted = True
+                                        break
+                                    elif 'VolumeInUse' in str(poll_ce):
+                                        continue
+                                    else:
+                                        break
+
+                            wait_spinner.stop()
+                            if deleted:
+                                print_status("success", f"Successfully deleted EBS Volume: {res_id}", region)
+                            else:
+                                print_status("info", f"EC2 termination is still in progress. AWS will auto-delete volume {res_id} once finished.", region)
+                        else:
+                            print_status("info", f"Skipping manual wait. AWS will auto-delete volume {res_id} once EC2 finishes terminating.", region)
+                    except KeyboardInterrupt:
+                        print_status("info", f"Skipping manual wait for volume {res_id}.", region)
+
                 elif 'InvalidVolume.NotFound' in err_msg:
                     print_status("success", f"EBS Volume {res_id} has already been deleted.", region)
                 else:
