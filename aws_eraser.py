@@ -984,6 +984,54 @@ def delete_selected_resources(session, items_to_delete):
 def run_nuke(session, regions, all_resources):
     delete_selected_resources(session, all_resources)
 
+def prompt_rerun_or_exit():
+    print(f"\n{Colors.BOLD}{Colors.CYAN}============================================================{Colors.RESET}")
+    print(f" {Colors.BOLD}Press [ENTER] to re-run scan | Type 'exit' (or press ESC) to quit{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.CYAN}============================================================{Colors.RESET}")
+
+    if sys.platform == 'win32':
+        try:
+            import msvcrt
+            sys.stdout.write(f"{Colors.YELLOW}> {Colors.RESET}")
+            sys.stdout.flush()
+            input_chars = []
+            while True:
+                ch = msvcrt.getch()
+                if ch == b'\x1b':  # ESC key
+                    print("Exiting...")
+                    return False
+                elif ch in (b'\r', b'\n'):  # Enter key
+                    val = "".join(input_chars).strip().lower()
+                    print()
+                    if val in ('exit', 'q', 'quit'):
+                        return False
+                    return True
+                elif ch in (b'\b', b'\x08', b'\x7f'):
+                    if input_chars:
+                        input_chars.pop()
+                        sys.stdout.write('\b \b')
+                        sys.stdout.flush()
+                else:
+                    try:
+                        char_str = ch.decode('utf-8')
+                        if char_str.isprintable():
+                            input_chars.append(char_str)
+                            sys.stdout.write(char_str)
+                            sys.stdout.flush()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    try:
+        user_choice = input(f"{Colors.YELLOW}> {Colors.RESET}").strip().lower()
+        if user_choice in ('exit', 'q', 'quit', 'esc'):
+            return False
+        return True
+    except KeyboardInterrupt:
+        print("\nExiting...")
+        return False
+
 def main():
     print_banner()
     
@@ -1027,121 +1075,134 @@ def main():
                 print(f"\n{Colors.YELLOW}Exiting.{Colors.RESET}")
                 sys.exit(0)
         
-    print("\nRetrieving AWS regions...")
-    regions = get_all_regions(session)
-    print_status("info", f"Found {len(regions)} regions to scan.")
-    
-    # Run Dry-Run scan first
-    all_resources = []
-    
-    print_header("Scanning Global Services")
-    all_resources.extend(process_cloudfront(session, dry_run=True))
-    all_resources.extend(process_wafv2(session, 'us-east-1', 'CLOUDFRONT', dry_run=True))
-    all_resources.extend(process_s3(session, dry_run=True))
-    all_resources.extend(process_lightsail(session, dry_run=True))
-    
-    print_header("Scanning Regional Services")
-    for index, r in enumerate(regions):
-        print_status("info", f"[{index + 1}/{len(regions)}] Scanning region: {r}...")
-        res_waf = process_wafv2(session, r, 'REGIONAL', dry_run=True)
-        all_resources.extend(res_waf)
-        res_reg = process_regional(session, r, dry_run=True)
-        all_resources.extend(res_reg)
+    # Scan & Action Loop
+    while True:
+        PERMISSION_WARNINGS.clear()
+        print("\nRetrieving AWS regions...")
+        regions = get_all_regions(session)
+        print_status("info", f"Found {len(regions)} regions to scan.")
         
-    # Summary of findings
-    print_header("Scan Summary")
-    if not all_resources:
-        print(f"{Colors.GREEN}No active billing resources found in this AWS account.{Colors.RESET}")
-    else:
-        print(f"Total resources found: {Colors.BOLD}{len(all_resources)}{Colors.RESET}")
-        print("\nSummary List:")
-        for index, item in enumerate(all_resources, 1):
-            name_str = f" ({item['name']})" if 'name' in item else ""
-            region_str = f" in region {item['region']}" if 'region' in item else " (global)"
-            print(f"  [{Colors.CYAN}{index}{Colors.RESET}] {Colors.YELLOW}{item['type']}{Colors.RESET}: {item['id']}{name_str}{region_str}")
+        # Run Dry-Run scan first
+        all_resources = []
         
-    print("=" * 60)
-
-    # Print permission warnings if any occurred
-    if PERMISSION_WARNINGS:
-        print_header("Scan Warnings (Missing Permissions)")
-        print(f" {Colors.YELLOW}[!]{Colors.RESET} Insufficient permissions detected for the following services:")
-        for service in sorted(PERMISSION_WARNINGS):
-            print(f"     - {service}")
-        print(f"\n {Colors.BLUE}[i]{Colors.RESET} Note: Active resources under these services could not be scanned")
-        print("     or deleted. To resolve these errors, refer to the detailed guide in:")
-        print(f"     {Colors.CYAN}PERMISSIONS.md{Colors.RESET} or ask your AI coding assistant to generate the correct policies.")
+        print_header("Scanning Global Services")
+        all_resources.extend(process_cloudfront(session, dry_run=True))
+        all_resources.extend(process_wafv2(session, 'us-east-1', 'CLOUDFRONT', dry_run=True))
+        all_resources.extend(process_s3(session, dry_run=True))
+        all_resources.extend(process_lightsail(session, dry_run=True))
+        
+        print_header("Scanning Regional Services")
+        for index, r in enumerate(regions):
+            print_status("info", f"[{index + 1}/{len(regions)}] Scanning region: {r}...")
+            res_waf = process_wafv2(session, r, 'REGIONAL', dry_run=True)
+            all_resources.extend(res_waf)
+            res_reg = process_regional(session, r, dry_run=True)
+            all_resources.extend(res_reg)
+            
+        # Summary of findings
+        print_header("Scan Summary")
+        if not all_resources:
+            print(f"{Colors.GREEN}No active billing resources found in this AWS account.{Colors.RESET}")
+        else:
+            print(f"Total resources found: {Colors.BOLD}{len(all_resources)}{Colors.RESET}")
+            print("\nSummary List:")
+            for index, item in enumerate(all_resources, 1):
+                name_str = f" ({item['name']})" if 'name' in item else ""
+                region_str = f" in region {item['region']}" if 'region' in item else " (global)"
+                print(f"  [{Colors.CYAN}{index}{Colors.RESET}] {Colors.YELLOW}{item['type']}{Colors.RESET}: {item['id']}{name_str}{region_str}")
+            
         print("=" * 60)
 
-    if not all_resources:
-        return
-    
-    # Interactive Post-Scan Deletion Menu
-    print_header("Deletion Options")
-    print("  1. Nuke ALL resources (Delete every resource listed above)")
-    print("  2. Select specific resources to delete manually")
-    print("  3. Cancel and exit (No resources will be deleted)")
+        # Print permission warnings if any occurred
+        if PERMISSION_WARNINGS:
+            print_header("Scan Warnings (Missing Permissions)")
+            print(f" {Colors.YELLOW}[!]{Colors.RESET} Insufficient permissions detected for the following services:")
+            for service in sorted(PERMISSION_WARNINGS):
+                print(f"     - {service}")
+            print(f"\n {Colors.BLUE}[i]{Colors.RESET} Note: Active resources under these services could not be scanned")
+            print("     or deleted. To resolve these errors, refer to the detailed guide in:")
+            print(f"     {Colors.CYAN}PERMISSIONS.md{Colors.RESET} or ask your AI coding assistant to generate the correct policies.")
+            print("=" * 60)
 
-    try:
-        choice = input(f"\n{Colors.BOLD}{Colors.CYAN}Select an option (1-3): {Colors.RESET}").strip()
+        if not all_resources:
+            if not prompt_rerun_or_exit():
+                break
+            continue
         
-        if choice == '1':
-            print(f"\n{Colors.BOLD}{Colors.RED}[WARNING] You have selected to NUKE ALL {len(all_resources)} resources!{Colors.RESET}")
-            confirm = input(f"{Colors.YELLOW}Are you absolutely sure? (Type 'yes' to nuke all): {Colors.RESET}").strip().lower()
-            if confirm == 'yes':
-                delete_selected_resources(session, all_resources)
-                print_header("Nuke Process Complete")
-                print(f"{Colors.GREEN}[OK] NUKE PROCESS FINISHED. Some deletions are asynchronous and take time.{Colors.RESET}")
-                print("Please re-run the script to verify all resources are successfully deleted.")
-                print("=" * 60)
-            else:
-                print(f"\n{Colors.YELLOW}Nuke cancelled. No resources were deleted.{Colors.RESET}")
+        # Interactive Post-Scan Deletion Menu
+        print_header("Deletion Options")
+        print("  1. Nuke ALL resources (Delete every resource listed above)")
+        print("  2. Select specific resources to delete manually")
+        print("  3. Cancel and exit (No resources will be deleted)")
 
-        elif choice == '2':
-            print_header("Manual Resource Selection")
-            for idx, item in enumerate(all_resources, 1):
-                name_str = f" ({item['name']})" if 'name' in item else ""
-                region_str = f" in region {item['region']}" if 'region' in item else " (global)"
-                print(f"  [{Colors.CYAN}{idx}{Colors.RESET}] {Colors.YELLOW}{item['type']}{Colors.RESET}: {item['id']}{name_str}{region_str}")
+        try:
+            choice = input(f"\n{Colors.BOLD}{Colors.CYAN}Select an option (1-3): {Colors.RESET}").strip()
+            
+            if choice == '1':
+                print(f"\n{Colors.BOLD}{Colors.RED}[WARNING] You have selected to NUKE ALL {len(all_resources)} resources!{Colors.RESET}")
+                confirm = input(f"{Colors.YELLOW}Are you absolutely sure? (Type 'yes' to nuke all): {Colors.RESET}").strip().lower()
+                if confirm == 'yes':
+                    delete_selected_resources(session, all_resources)
+                    print_header("Nuke Process Complete")
+                    print(f"{Colors.GREEN}[OK] NUKE PROCESS FINISHED. Some deletions are asynchronous and take time.{Colors.RESET}")
+                    print("Please re-run the script to verify all resources are successfully deleted.")
+                    print("=" * 60)
+                else:
+                    print(f"\n{Colors.YELLOW}Nuke cancelled. No resources were deleted.{Colors.RESET}")
 
-            print(f"\n{Colors.CYAN}Enter resource numbers to delete (e.g., '1, 3, 5-8', 'all', or 'cancel'):{Colors.RESET}")
-            while True:
-                sel_input = input(f"{Colors.BOLD}> {Colors.RESET}").strip()
-                if not sel_input or sel_input.lower() == 'cancel':
-                    print(f"\n{Colors.YELLOW}Manual selection cancelled. No resources deleted.{Colors.RESET}")
-                    return
-                try:
-                    selected_indices = parse_resource_selection(sel_input, len(all_resources))
-                    if selected_indices is None:
+            elif choice == '2':
+                print_header("Manual Resource Selection")
+                for idx, item in enumerate(all_resources, 1):
+                    name_str = f" ({item['name']})" if 'name' in item else ""
+                    region_str = f" in region {item['region']}" if 'region' in item else " (global)"
+                    print(f"  [{Colors.CYAN}{idx}{Colors.RESET}] {Colors.YELLOW}{item['type']}{Colors.RESET}: {item['id']}{name_str}{region_str}")
+
+                print(f"\n{Colors.CYAN}Enter resource numbers to delete (e.g., '1, 3, 5-8', 'all', or 'cancel'):{Colors.RESET}")
+                cancelled = False
+                while True:
+                    sel_input = input(f"{Colors.BOLD}> {Colors.RESET}").strip()
+                    if not sel_input or sel_input.lower() == 'cancel':
                         print(f"\n{Colors.YELLOW}Manual selection cancelled. No resources deleted.{Colors.RESET}")
-                        return
-                    break
-                except ValueError as ve:
-                    print(f"  {Colors.RED}[Error] {ve}. Please try again.{Colors.RESET}")
+                        cancelled = True
+                        break
+                    try:
+                        selected_indices = parse_resource_selection(sel_input, len(all_resources))
+                        if selected_indices is None:
+                            print(f"\n{Colors.YELLOW}Manual selection cancelled. No resources deleted.{Colors.RESET}")
+                            cancelled = True
+                            break
+                        break
+                    except ValueError as ve:
+                        print(f"  {Colors.RED}[Error] {ve}. Please try again.{Colors.RESET}")
 
-            selected_items = [all_resources[i] for i in selected_indices]
-            print_header(f"Confirm Deletion ({len(selected_items)} Selected Item{'s' if len(selected_items) > 1 else ''})")
-            for item in selected_items:
-                name_str = f" ({item['name']})" if 'name' in item else ""
-                region_str = f" in region {item['region']}" if 'region' in item else " (global)"
-                print(f"  - {Colors.YELLOW}{item['type']}{Colors.RESET}: {item['id']}{name_str}{region_str}")
+                if not cancelled:
+                    selected_items = [all_resources[i] for i in selected_indices]
+                    print_header(f"Confirm Deletion ({len(selected_items)} Selected Item{'s' if len(selected_items) > 1 else ''})")
+                    for item in selected_items:
+                        name_str = f" ({item['name']})" if 'name' in item else ""
+                        region_str = f" in region {item['region']}" if 'region' in item else " (global)"
+                        print(f"  - {Colors.YELLOW}{item['type']}{Colors.RESET}: {item['id']}{name_str}{region_str}")
 
-            confirm = input(f"\n{Colors.BOLD}{Colors.RED}Are you sure you want to delete these {len(selected_items)} resource(s)? (Type 'yes' to proceed): {Colors.RESET}").strip().lower()
-            if confirm == 'yes':
-                delete_selected_resources(session, selected_items)
-                print_header("Deletion Process Complete")
-                print(f"{Colors.GREEN}[OK] DELETION PROCESS FINISHED. Some deletions are asynchronous and take time.{Colors.RESET}")
-                print("Please re-run the script to verify resources are successfully deleted.")
-                print("=" * 60)
+                    confirm = input(f"\n{Colors.BOLD}{Colors.RED}Are you sure you want to delete these {len(selected_items)} resource(s)? (Type 'yes' to proceed): {Colors.RESET}").strip().lower()
+                    if confirm == 'yes':
+                        delete_selected_resources(session, selected_items)
+                        print_header("Deletion Process Complete")
+                        print(f"{Colors.GREEN}[OK] DELETION PROCESS FINISHED. Some deletions are asynchronous and take time.{Colors.RESET}")
+                        print("Please re-run the script to verify resources are successfully deleted.")
+                        print("=" * 60)
+                    else:
+                        print(f"\n{Colors.YELLOW}Deletion cancelled. No resources were deleted.{Colors.RESET}")
+
             else:
-                print(f"\n{Colors.YELLOW}Deletion cancelled. No resources were deleted.{Colors.RESET}")
+                print(f"\n{Colors.YELLOW}Operation cancelled. No resources were deleted.{Colors.RESET}")
 
-        else:
-            print(f"\n{Colors.YELLOW}Operation cancelled. No resources were deleted.{Colors.RESET}")
+        except KeyboardInterrupt:
+            print(f"\n{Colors.YELLOW}Operation cancelled.{Colors.RESET}")
 
-    except KeyboardInterrupt:
-        print(f"\n{Colors.YELLOW}Operation cancelled.{Colors.RESET}")
-        sys.exit(0)
+        if not prompt_rerun_or_exit():
+            break
+
+    print(f"\n{Colors.GREEN}Thank you for using AWS Eraser! Goodbye.{Colors.RESET}\n")
 
 if __name__ == '__main__':
     main()
