@@ -843,13 +843,23 @@ def delete_single_resource(session, item):
             try:
                 vol_info = ec2.describe_volumes(VolumeIds=[res_id]).get('Volumes', [])
                 if vol_info and vol_info[0]['State'] == 'in-use':
-                    ec2.detach_volume(VolumeId=res_id, Force=True)
-                    time.sleep(2)
-            except Exception:
-                pass
-            ec2.delete_volume(VolumeId=res_id)
-            spinner.stop()
-            print_status("success", f"Successfully deleted EBS Volume: {res_id}", region)
+                    try:
+                        ec2.detach_volume(VolumeId=res_id, Force=True)
+                        time.sleep(2)
+                    except Exception:
+                        pass
+                ec2.delete_volume(VolumeId=res_id)
+                spinner.stop()
+                print_status("success", f"Successfully deleted EBS Volume: {res_id}", region)
+            except ClientError as ce:
+                spinner.stop()
+                err_msg = str(ce)
+                if 'VolumeInUse' in err_msg:
+                    print_status("info", f"EBS Volume {res_id} is attached to a terminating instance and will be automatically deleted by AWS.", region)
+                elif 'InvalidVolume.NotFound' in err_msg:
+                    print_status("success", f"EBS Volume {res_id} has already been deleted.", region)
+                else:
+                    print_status("error", f"Failed to delete EBS Volume {res_id}: {ce}", region)
 
         elif res_type == 'Elastic IP':
             ec2 = session.client('ec2', region_name=region, config=TIMEOUT_CONFIG)
