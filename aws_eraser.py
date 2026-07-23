@@ -465,7 +465,34 @@ def process_regional(session, region, dry_run=True):
         if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
             PERMISSION_WARNINGS.add("EC2 (Elastic Block Store Volumes)")
 
-    # 3. Elastic IPs
+    # 3. EBS Snapshots
+    try:
+        snapshots = ec2.describe_snapshots(OwnerIds=['self']).get('Snapshots', [])
+        for snap in snapshots:
+            snap_id = snap['SnapshotId']
+            description = snap.get('Description', '')
+            print_status("warning", f"Found EBS Snapshot: {snap_id}", region)
+            
+            res_item = {'type': 'EBS Snapshot', 'id': snap_id, 'region': region}
+            if description:
+                res_item['name'] = description
+            found.append(res_item)
+            
+            if not dry_run:
+                spinner = Spinner(f"Deleting EBS Snapshot: {snap_id}")
+                spinner.start()
+                try:
+                    ec2.delete_snapshot(SnapshotId=snap_id)
+                    spinner.stop()
+                    print_status("success", f"Successfully deleted EBS Snapshot: {snap_id}", region)
+                except Exception as e:
+                    spinner.stop()
+                    print_status("error", f"Failed to delete EBS Snapshot {snap_id}: {e}", region)
+    except Exception as e:
+        if 'AccessDenied' in str(e) or 'UnauthorizedOperation' in str(e):
+            PERMISSION_WARNINGS.add("EC2 (EBS Snapshots)")
+
+    # 4. Elastic IPs
     try:
         eips = ec2.describe_addresses().get('Addresses', [])
         for ip in eips:
@@ -901,10 +928,18 @@ def delete_single_resource(session, item):
                     except KeyboardInterrupt:
                         print_status("info", f"Skipping manual wait for volume {res_id}.", region)
 
-                elif 'InvalidVolume.NotFound' in err_msg:
-                    print_status("success", f"EBS Volume {res_id} has already been deleted.", region)
+        elif res_type == 'EBS Snapshot':
+            ec2 = session.client('ec2', region_name=region, config=TIMEOUT_CONFIG)
+            try:
+                ec2.delete_snapshot(SnapshotId=res_id)
+                spinner.stop()
+                print_status("success", f"Successfully deleted EBS Snapshot: {res_id}", region)
+            except ClientError as ce:
+                spinner.stop()
+                if 'InvalidSnapshot.NotFound' in str(ce):
+                    print_status("success", f"EBS Snapshot {res_id} has already been deleted.", region)
                 else:
-                    print_status("error", f"Failed to delete EBS Volume {res_id}: {ce}", region)
+                    print_status("error", f"Failed to delete EBS Snapshot {res_id}: {ce}", region)
 
         elif res_type == 'Elastic IP':
             ec2 = session.client('ec2', region_name=region, config=TIMEOUT_CONFIG)
