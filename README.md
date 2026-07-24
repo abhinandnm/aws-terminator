@@ -93,6 +93,8 @@ pip install -r requirements.txt
 If installed via PyPI:
 ```bash
 aws-eraser
+# Or if your Python Scripts folder is not in PATH:
+python -m aws_eraser
 ```
 
 If cloned manually:
