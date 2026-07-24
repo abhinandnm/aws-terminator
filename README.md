@@ -72,8 +72,14 @@ If you are searching Google for answers to these common AWS billing and administ
 
 ### 1. Installation
 
-Download the stable release or clone this repository and install the required dependencies:
+#### Option A: Install via PyPI (Recommended)
+Install directly using `pip` or `pipx`:
+```bash
+pip install aws-eraser
+```
 
+#### Option B: Clone Repository
+Clone the repository and install dependencies:
 ```bash
 git clone https://github.com/abhinandnm/aws-eraser.git
 cd aws-eraser
@@ -84,7 +90,12 @@ pip install -r requirements.txt
 
 ### 2. Usage
 
-Execute the script directly in your terminal:
+If installed via PyPI:
+```bash
+aws-eraser
+```
+
+If cloned manually:
 ```bash
 python aws_eraser.py
 ```

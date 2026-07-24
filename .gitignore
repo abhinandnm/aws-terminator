@@ -17,5 +17,8 @@ env/
 .vscode/
 .DS_Store
 
-# Local Website / Vercel Directory
-website/
+# Python Build & Packaging Artifacts
+build/
+dist/
+*.egg-info/
+

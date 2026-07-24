@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aws-eraser"
+version = "0.1.0"
+description = "Safely scan and purge unwanted resources across AWS accounts and regions to eliminate surprise billing."
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["aws", "cloud", "cleanup", "billing", "cost-optimization", "boto3", "aws-nuke", "eraser"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "boto3>=1.34.0",
+]
+
+[project.scripts]
+aws-eraser = "aws_eraser:main"
+
+[project.urls]
+Homepage = "https://github.com/abhinandnm/aws-eraser"
+Repository = "https://github.com/abhinandnm/aws-eraser"
+"Bug Tracker" = "https://github.com/abhinandnm/aws-eraser/issues"
+
+[tool.setuptools]
+py-modules = ["aws_eraser"]
